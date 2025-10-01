@@ -1,0 +1,3 @@
+Prompt for AI Face (Generated with ChatGPT 5 Plus):
+
+Generate an image of a face drawn with pen and colored with watercolor paint. The face should have, at minimum, two eyes, 1 nose, and 1 mouth. Use realistic colors, shapes, and proportions. There should only be a face; do not include a body.
