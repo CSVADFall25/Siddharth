@@ -1,3 +1,6 @@
+// I increase the range and granularity of colors. 
+// I created a gradient of colors that changed saturation in correspondence.
+
 // HSVExplorer - Explore Hue, Saturation, and Brightness with mouse interaction
 // Move mouse horizontally to change hue
 // Three vertical bars show the same hue at different brightness levels
