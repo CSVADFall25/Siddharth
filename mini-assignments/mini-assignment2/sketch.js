@@ -1,7 +1,9 @@
-// I increase the range and granularity of colors. 
-// I created a gradient of colors that changed saturation in correspondence, so both saturation and brightness are displayed.
-// I also added a complementary color scheme to show how the same saturation and brightness levels look with the complementary hue.
-// I also added a feature that allows the user to save the canvas as a PNG file by pressing the 's' key.
+/*
+- I increased the range and granularity of colors. 
+- I created a gradient of colors that changed saturation in correspondence, so both saturation and brightness are displayed.
+- I added a complementary color scheme to show how the same saturation and brightness levels look with the complementary hue.
+- I added a feature that allows the user to save the canvas as a PNG file by pressing the 's' or 'S' key.
+*/ 
 
 // HSVExplorer - Explore Hue, Saturation, and Brightness with mouse interaction
 // Move mouse horizontally to change hue
