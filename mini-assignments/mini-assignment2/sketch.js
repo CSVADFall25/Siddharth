@@ -1,5 +1,6 @@
 // I increase the range and granularity of colors. 
-// I created a gradient of colors that changed saturation in correspondence.
+// I created a gradient of colors that changed saturation in correspondence, so both saturation and brightness are displayed.
+// I also added a complementary color scheme to show how the same saturation and brightness levels look with the complementary hue.
 // I also added a feature that allows the user to save the canvas as a PNG file by pressing the 's' key.
 
 // HSVExplorer - Explore Hue, Saturation, and Brightness with mouse interaction
@@ -17,17 +18,39 @@ function setup() {
 function draw() {
   background(0);
 
+  // grid
+  const cols = 20;
+  const rows = 4;
+  const margin = 100 / cols;
+  const cellW = width / cols;
+  const cellH = height / rows;
+
   // Compute hue based on mouse position
   let hue = map(mouseX, 0, width, 0, 360);
+
   for (let i = 0; i < 20; i++) {
-    fill(hue, 100, 100 - i * 5); // brightness
-    rect(i * 50, 100, height);
+    fill(hue, 100 - i * margin, 100); // saturation
+    rect(i * cellW, 0 * cellH, cellW, cellH);
   }
 
   for (let i = 0; i < 20; i++) {
-    fill(hue, 100 - i * 5, 100); // saturation
-    rect(i * 50, 0, 100, height / 2);
+    fill(hue, 100, 100 - i * margin); // brightness
+    rect(i * cellW, 1 * cellH, cellW, cellH);
   }
+
+  // Compute complementary hue
+  let complementaryHue = (hue + 180) % 360;
+  
+  for (let i = 0; i < 20; i++) {
+    fill(complementaryHue, 100 - i * margin, 100); // saturation
+    rect(i * cellW, 2 * cellH, cellW, cellH);
+  }
+
+  for (let i = 0; i < 20; i++) {
+    fill(complementaryHue, 100, 100 - i * margin); // brightness
+    rect(i * cellW, 3 * cellH, cellW, cellH);
+  }
+  
 }
 
 function keyPressed() {
