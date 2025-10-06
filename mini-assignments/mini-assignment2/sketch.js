@@ -5,7 +5,7 @@
 let hueValue;
 
 function setup() {
-  createCanvas(600, 400);
+  createCanvas(1000, 800);
   colorMode(HSB, 360, 100, 100);
   noStroke();
 }
@@ -15,16 +15,13 @@ function draw() {
 
   // Compute hue based on mouse position
   let hue = map(mouseX, 0, width, 0, 360);
+  for (let i = 0; i < 20; i++) {
+    fill(hue, 100, 100 - i * 5); // brightness
+    rect(i * 50, 100, height);
+  }
 
-  // First square (pure hue)
-  fill(hue, 100, 100);
-  rect(0, 0, 200, height);
-
-  // Second square (slightly darker)
-  fill(hue, 100, 70); // darkened by lowering brightness
-  rect(200, 0, 200, height);
-
-  // Third square (even darker)
-  fill(hue, 100, 40);
-  rect(400, 0, 200, height);
+  for (let i = 0; i < 20; i++) {
+    fill(hue, 100 - i * 5, 100); // saturation
+    rect(i * 50, 0, 100, height / 2);
+  }
 }
