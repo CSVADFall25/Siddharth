@@ -1,5 +1,6 @@
 // I increase the range and granularity of colors. 
 // I created a gradient of colors that changed saturation in correspondence.
+// I also added a feature that allows the user to save the canvas as a PNG file by pressing the 's' key.
 
 // HSVExplorer - Explore Hue, Saturation, and Brightness with mouse interaction
 // Move mouse horizontally to change hue
@@ -26,5 +27,12 @@ function draw() {
   for (let i = 0; i < 20; i++) {
     fill(hue, 100 - i * 5, 100); // saturation
     rect(i * 50, 0, 100, height / 2);
+  }
+}
+
+function keyPressed() {
+  // Save the canvas as a PNG file when 's' key is pressed
+  if (key === 's' || key === 'S') {
+    saveCanvas('hsv_explorer', 'png');
   }
 }
