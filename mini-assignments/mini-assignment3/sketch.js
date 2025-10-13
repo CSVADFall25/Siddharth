@@ -1,4 +1,6 @@
-// I inverted and mirroed the video.
+/* 
+I inverted and mirroed the video.
+*/
 // IN PROGRESS
 
 // example from https://kylemcdonald.github.io/cv-examples/
