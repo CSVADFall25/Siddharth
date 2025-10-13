@@ -5,7 +5,6 @@ I mirrored the video.
 3) I changed the edges to blue dots and made it so motion means dots outlining edges moving become warmer (based on how fast).
 I consulted ChatGPT to help debug syntax errors and to help construct the subdivision average motion detection.
 */
-// IN PROGRESS
 
 // example from https://kylemcdonald.github.io/cv-examples/
 // https://inspirit.github.io/jsfeat/sample_canny_edge.html
