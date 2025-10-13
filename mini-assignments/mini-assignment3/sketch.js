@@ -1,7 +1,7 @@
 /* 
 I mirrored the video.
 I changed the edges to blue dots and made it so motion means dots outlining edges moving become warmer (based on how fast).
-I created sliders to modify the grid overlay (horizontal and vertical divisions).
+I created sliders to modify the grid composition overlay (horizontal and vertical divisions).
 I consulted ChatGPT to help debug console and syntax errors.
 */
 // IN PROGRESS
