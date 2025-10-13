@@ -3,7 +3,7 @@ I mirrored the video.
 1) The live feed is subdivided into a grid, and each cell's color intensity is based on the average motion detected within that cell.
 2) I created sliders to modify the grid composition overlay (horizontal and vertical divisions).
 3) I changed the edges to blue dots and made it so motion means dots outlining edges moving become warmer (based on how fast).
-I consulted ChatGPT to help debug console and syntax errors.
+I consulted ChatGPT to help debug syntax errors and to help construct the subdivision average motion detection.
 */
 // IN PROGRESS
 
@@ -162,7 +162,7 @@ function draw() {
                 }
 
                 const mAvg = cnt ? acc / cnt : 0;
-                const hueVal = map(mAvg, 0, 60, 170, 0); 
+                const hueVal = map(mAvg, 0, 30, 170, 0); 
 
                 noStroke();
                 fill(hueVal, 255, 255, cnt ? 60 : 0);   
