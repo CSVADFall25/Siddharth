@@ -119,7 +119,7 @@ function draw() {
         scale(-1, 1);
 
         // Dots!
-        var maxMotion = 60;
+        var maxMotion = 30;
         for (var y = 0; y < h; y += sampleStep) {
             var rowIndex = y * w;
             for (var x = 0; x < w; x += sampleStep) {
