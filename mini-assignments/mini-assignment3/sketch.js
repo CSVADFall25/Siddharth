@@ -1,6 +1,7 @@
 /* 
 I mirrored the video.
 I changed the edges to blue dots and made it so motion means dots outlining edges moving become warmer (based on how fast).
+I overlaid a grid on top of the dots for now.
 */
 // IN PROGRESS
 
@@ -103,6 +104,16 @@ function draw() {
             }
         }
         pop();
+
+        // overlay a grid
+        stroke(255, 50);
+        for (var x = 0; x < width; x += 20) {
+            line(x, 0, x, height);
+        }
+        for (var y = 0; y < height; y += 20) {
+            line(0, y, width, y);
+        }
+        noStroke();
 
         grayPrev.data.set(grayNow.data);
     }
