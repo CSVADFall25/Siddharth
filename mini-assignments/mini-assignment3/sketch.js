@@ -1,7 +1,8 @@
 /* 
 I mirrored the video.
 I changed the edges to blue dots and made it so motion means dots outlining edges moving become warmer (based on how fast).
-I overlaid a grid on top of the dots for now.
+I created sliders to modify the grid overlay (horizontal and vertical divisions).
+I consulted ChatGPT to help debug console and syntax errors.
 */
 // IN PROGRESS
 
@@ -16,6 +17,7 @@ var w = 640,
 
 var grayNow, grayPrev;
 var sampleStep = 3;
+var x_val, y_val;
 
 function setup() {
     capture = createCapture({
@@ -37,6 +39,34 @@ function setup() {
 
     colorMode(HSB, 255);
     noStroke();
+
+    // Horizontal and Vertical grid sliders
+    let controlsParent = select('#highThreshold') ? select('#highThreshold').elt.parentNode : null;
+
+    let xDivContainer = createDiv();
+    xDivContainer.html('<br>Horizontal Divisions: ');
+    xDivContainer.style('color', 'black');
+    xDivContainer.style('display', 'flex');
+    xDivContainer.style('gap', '8px');
+    xDivContainer.style('align-items', 'center');
+    xDivSlider = createSlider(1, 20, 10, 1);
+    xDivSlider.style('width', '200px');
+    xDivSlider.parent(xDivContainer);
+
+    let yDivContainer = createDiv();
+    yDivContainer.html('Vertical Divisions: ');
+    yDivContainer.style('color', 'black');
+    yDivContainer.style('display', 'flex');
+    yDivContainer.style('gap', '8px');
+    yDivContainer.style('align-items', 'center');
+    yDivSlider = createSlider(1, 20, 10, 1);
+    yDivSlider.style('width', '200px');
+    yDivSlider.parent(yDivContainer);
+
+    if (controlsParent) {
+        xDivContainer.parent(controlsParent);
+        yDivContainer.parent(controlsParent); 
+    }
 }
 
 function jsfeatToP5(src, dst) {
@@ -99,18 +129,24 @@ function draw() {
                     if (m > maxMotion) m = maxMotion;
                     var hueVal = map(m, 0, maxMotion, 170, 0);
                     fill(hueVal, 255, 255);
-                    ellipse(x, y, 8, 8);
+                    ellipse(x, y, 4, 4);
                 }
             }
         }
         pop();
 
+        // sliders to modify grid
+        x_val = xDivSlider ? xDivSlider.value() : 10;
+        y_val = yDivSlider ? yDivSlider.value() : 10;
+        const xStep = width  / Math.max(1, x_val);
+        const yStep = height / Math.max(1, y_val);
+
         // overlay a grid
         stroke(255, 50);
-        for (var x = 0; x < width; x += 20) {
+        for (let x = 0; x < width; x += xStep) {
             line(x, 0, x, height);
         }
-        for (var y = 0; y < height; y += 20) {
+        for (let y = 0; y < height; y += yStep) {
             line(0, y, width, y);
         }
         noStroke();
