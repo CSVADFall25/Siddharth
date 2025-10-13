@@ -1,3 +1,6 @@
+// I inverted and mirroed the video.
+// IN PROGRESS
+
 // example from https://kylemcdonald.github.io/cv-examples/
 // https://inspirit.github.io/jsfeat/sample_canny_edge.html
 
@@ -59,11 +62,18 @@ function draw() {
         jsfeat.imgproc.gaussian_blur(buffer, buffer, blurSize, 0);
         jsfeat.imgproc.canny(buffer, buffer, lowThreshold, highThreshold);
         var n = buffer.rows * buffer.cols;
-        // uncomment the following lines to invert the image
-//        for (var i = 0; i < n; i++) {
-//            buffer.data[i] = 255 - buffer.data[i];
-//        }
+        // Invert image
+        for (var i = 0; i < n; i++) {
+            buffer.data[i] = 255 - buffer.data[i];
+        }
+        // Result
         result = jsfeatToP5(buffer, result);
+
+        // Mirror image
+        push();
+        translate(width, 0);
+        scale(-1, 1);
         image(result, 0, 0, 640, 480);
+        pop();
     }
 }
