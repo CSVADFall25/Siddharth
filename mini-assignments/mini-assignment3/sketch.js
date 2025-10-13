@@ -1,6 +1,6 @@
 /* 
 I mirrored the video.
-1) The live feed is subdivided into a grid, and each cell's color intensity is based on the average motion detected within that cell.
+1) The live feed is subdivided into a grid, and each cell's color intensity is based on the average motion detected.
 2) I created sliders to modify the grid composition overlay (horizontal and vertical divisions).
 3) I changed the edges to blue dots and made it so motion means dots outlining edges moving become warmer (based on how fast).
 I consulted ChatGPT to help debug syntax errors and to help construct the subdivision average motion detection.
@@ -140,6 +140,9 @@ function draw() {
         y_val = yDivSlider ? yDivSlider.value() : 10;
         const xStep = width  / Math.max(1, x_val);
         const yStep = height / Math.max(1, y_val);
+        push();
+        translate(width, 0);
+        scale(-1, 1);
 
         // overlay a grid with content-aware subdivision
         for (let gy = 0; gy < y_val; gy++) {
@@ -173,6 +176,7 @@ function draw() {
         stroke(255, 50);
         for (let x = 0; x < width; x += xStep) line(x, 0, x, height);
         for (let y = 0; y < height; y += yStep) line(0, y, width, y);
+        pop();
         noStroke();
 
         grayPrev.data.set(grayNow.data);
