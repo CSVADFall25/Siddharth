@@ -1,19 +1,20 @@
 /* Stroke.js
-- Stores Points + Color (+ Thickness)
+- Stores Points + Color + Data
 - Draws a Smooth Polyline
 */
 class Stroke {
     // Creates new stroke with chosen color and thickness
-    constructor(col, thickness = 4, opacity = 100) {
+    constructor(col, thickness = 4, opacity = 100, eraser = false) {
         this.col = col;              // color of stroke
         this.thickness = thickness;  // line thickness in pixels
         this.opacity = this.opacity; // line opacity (0-100)
         this.points = [];            // list of points {x , y} that form the stroke
+        this.eraser = eraser;        // if true, this stroke erases pixels
     }
 
     // Adds a new point (x, y) to the stroke while mouse is being dragged
     add(x, y) {
-        this.points.push({ x, y});
+        this.points.push({ x, y });
     }
 
     // Draws the stroke on canvas
@@ -22,7 +23,14 @@ class Stroke {
         if (this.points.length < 2) return;
 
         // Set Drawing style
-        p.stroke(this.col);               // line color
+        if (this.eraser) {
+            // Remove pixels
+            p.erase();
+            p.stroke(0 ,0, 100);
+        } else {
+            p.noErase();
+            p.stroke(this.col); // line color
+        }
         p.noFill();                       // no fill
         p.strokeWeight(this.thickness);   // line thickness
         p.strokeCap(p.ROUND);             // rounded line ends
@@ -34,5 +42,7 @@ class Stroke {
             p.curveVertex(pt.x, pt.y); // add curve vertex at point
         }
         p.endShape(); // end shape
+
+        if (this.eraser) p.noErase();
     }
 }

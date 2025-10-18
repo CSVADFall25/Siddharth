@@ -21,6 +21,10 @@ let thickSlider, opacSlider, saveBtn, clearBtn;
 // Offscreen color wheel
 let gWheel;
 
+// Tool mode 
+let toolMode = 'draw';
+let drawBtn, eraseBtn, eraseStrokeBtn;
+
 // Set up environment
 function setup() {
   createCanvas(windowWidth, windowHeight);
@@ -79,6 +83,22 @@ function setup() {
   clearBtn.position(150, 600);
   clearBtn.mousePressed(() => { strokes = []; });
   styleButton(clearBtn, '#10B981'); 
+
+  // Tool buttons
+  drawBtn = createButton('Draw');
+  drawBtn.position(40, 640);
+  drawBtn.mousePressed(() => toolMode = 'draw');
+  styleButton(drawBtn, '#374151');
+
+  eraseBtn = createButton('Erase');
+  eraseBtn.position(110, 640);
+  eraseBtn.mousePressed(() => toolMode = 'erase');
+  styleButton(eraseBtn, '#F59E0B');
+
+  eraseStrokeBtn = createButton('Erase Stroke');
+  eraseStrokeBtn.position(180, 640);
+  eraseStrokeBtn.mousePressed(() => toolMode = 'eraseStroke');
+  styleButton(eraseStrokeBtn, '#EF4444');
 }
 
 // Drawing UI Panel, Box, and Strokes
@@ -95,19 +115,32 @@ function mousePressed() {
   if (inWheel(mouseX, mouseY)) { pickFromWheel(mouseX, mouseY); return; }
   if (inBBar(mouseX, mouseY))  { pickBrightness(mouseY);        return; }
 
-  if (inBox(mouseX, mouseY)) {
-    // Insert alpha into the color; pass opacity to Stroke
-    A = opacSlider.value();
-    currentStroke = new Stroke(color(H, S, B, A), thickSlider.value(), A);
-    currentStroke.add(mouseX, mouseY);
+  if (!inBox(mouseX, mouseY)) return;
+
+  if (toolMode === 'eraseStroke') {
+    const idx = findStrokeAt(mouseX, mouseY);
+    if (idx !== -1) strokes.splice(idx, 1);
+    return;
   }
+
+  // Insert alpha into the color; pass opacity to Stroke
+  A = opacSlider.value();
+
+  if (toolMode === 'erase') {
+    currentStroke = new Stroke(color(0, 0, 100, 0), thickSlider.value(), 100, true);
+  } else {
+    currentStroke = new Stroke(color(H, S, B, A), thickSlider.value(), A, false);
+  }
+  currentStroke.add(mouseX, mouseY);
 }
+
 function mouseDragged() {
   if (inWheel(mouseX, mouseY)) { pickFromWheel(mouseX, mouseY); return; }
   if (inBBar(mouseX, mouseY))  { pickBrightness(mouseY);        return; }
 
   if (currentStroke && inBox(mouseX, mouseY)) currentStroke.add(mouseX, mouseY);
 }
+
 function mouseReleased() {
   if (currentStroke) {
     if (currentStroke.points.length >= 2) strokes.push(currentStroke);
@@ -177,7 +210,7 @@ function drawUIPanel() {
   // Bar border
   noFill(); stroke('#111'); rect(BBAR.x, BBAR.y, BBAR.w, BBAR.h, BBAR.r);
 
-  // Brightness handle (pill)
+  // Brightness handle 
   const yPos = map(B, 0, 100, BBAR.y + BBAR.h, BBAR.y);
   fill('#ffffff'); stroke('#111'); rect(BBAR.x - 7, yPos - 8, BBAR.w + 14, 16, 8);
 
@@ -214,10 +247,7 @@ function drawBox() {
 /* ---------- Save ---------- */
 function saveCropped() {
   const img = get(BOX.x, BOX.y, BOX.w, BOX.h);
-  const g = createGraphics(BOX.w, BOX.h);
-  g.image(img, 0, 0);
-  g.save('drawing_cropped.png');
-  g.remove();
+  img.save('drawing_cropped', 'png');
 }
 
 function windowResized() { resizeCanvas(windowWidth, windowHeight); }
@@ -231,4 +261,32 @@ function styleButton(btn, bg) {
   btn.style('border-radius', '8px');
   btn.style('font-size', '12px');
   btn.style('cursor', 'pointer');
+}
+
+/* ---------- Stroke picking for Erase Stroke ---------- */
+function findStrokeAt(x, y) {
+  for (let i = strokes.length - 1; i >= 0; i--) {
+    if (strokeHit(strokes[i], x, y)) return i;
+  }
+  return -1;
+}
+function strokeHit(s, px, py) {
+  const pts = s.points;
+  if (pts.length < 2) return false;
+  const tol = Math.max(8, s.thickness / 2 + 4);
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i], b = pts[i + 1];
+    if (pointSegDist(px, py, a.x, a.y, b.x, b.y) <= tol) return true;
+  }
+  return false;
+}
+function pointSegDist(px, py, x1, y1, x2, y2) {
+  const dx = x2 - x1, dy = y2 - y1;
+  const len2 = dx*dx + dy*dy;
+  if (len2 === 0) return dist(px, py, x1, y1);
+  let t = ((px - x1)*dx + (py - y1)*dy) / len2;
+  t = constrain(t, 0, 1);
+  const cx = x1 + t * dx;
+  const cy = y1 + t * dy;
+  return dist(px, py, cx, cy);
 }
