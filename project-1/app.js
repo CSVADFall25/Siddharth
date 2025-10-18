@@ -1,5 +1,5 @@
-/* App.js (clean + bright)
-   - Base application
+/* App.js
+- Base application
 */
 
 let strokes = [];
@@ -13,7 +13,7 @@ const WHEEL = { cx: 190, cy: 220, r: 120 };
 const BBAR  = { x: 330, y: 110, w: 18,  h: 224, r: 6 };
 
 // Current color (HSB + Alpha)
-let H = 16, S = 46, B = 100, A = 100; // A is 0..100 
+let H = 16, S = 46, B = 100, A = 100; // A is 0..100
 
 // Controls
 let thickSlider, opacSlider, saveBtn, clearBtn;
@@ -21,24 +21,25 @@ let thickSlider, opacSlider, saveBtn, clearBtn;
 // Offscreen color wheel
 let gWheel;
 
-// Tool mode 
+// Tool mode
 let toolMode = 'draw';
 let drawBtn, eraseBtn, eraseStrokeBtn;
 
-// Set up environment
+// AI palette state
+let paletteColors = []; // array of hex strings
+const PALETTE = { x: 40, y: 775, sw: 36, gap: 10, rows: 1 }; // clickable swatches
+
 function setup() {
   createCanvas(windowWidth, windowHeight);
   colorMode(HSB, 360, 100, 100, 100);
   pixelDensity(1);
-
-  // Font
   textFont('Arial');
 
-  // Precompute H/S wheel 
+  // Precompute H/S wheel
   gWheel = createGraphics(WHEEL.r * 2 + 2, WHEEL.r * 2 + 2);
   gWheel.colorMode(HSB, 360, 100, 100, 100);
   gWheel.noStroke();
-  gWheel.noSmooth(); 
+  gWheel.noSmooth();
   const C = gWheel.width / 2;
   gWheel.loadPixels();
   for (let y = 0; y < gWheel.height; y++) {
@@ -59,32 +60,27 @@ function setup() {
   // Controls
   createSpan('<b>Thickness:</b>')
     .position(40, 480)
-    .style('font-size','14px')
-    .style('font-family', 'Arial')
-    .style('color','#111');
+    .style('font-size','14px').style('font-family','Arial').style('color','#111');
   thickSlider = createSlider(1, 40, 4, 1);
   thickSlider.position(40, 500).style('width','260px');
 
   createSpan('<b>Opacity:</b>')
     .position(40, 530)
-    .style('font-size','14px')
-    .style('font-family', 'Arial')
-    .style('color','#111');
-  opacSlider = createSlider(0, 100, 100, 1); 
+    .style('font-size','14px').style('font-family','Arial').style('color','#111');
+  opacSlider = createSlider(0, 100, 100, 1);
   opacSlider.position(40, 550).style('width','260px');
   opacSlider.input(() => { A = opacSlider.value(); });
 
   saveBtn = createButton('Save');
   saveBtn.position(40, 600);
   saveBtn.mousePressed(saveCropped);
-  styleButton(saveBtn, '#2563EB'); 
+  styleButton(saveBtn, '#2563EB');
 
   clearBtn = createButton('Clear');
   clearBtn.position(150, 600);
   clearBtn.mousePressed(() => { strokes = []; });
-  styleButton(clearBtn, '#10B981'); 
+  styleButton(clearBtn, '#10B981');
 
-  // Tool buttons
   drawBtn = createButton('Draw');
   drawBtn.position(40, 640);
   drawBtn.mousePressed(() => toolMode = 'draw');
@@ -99,9 +95,19 @@ function setup() {
   eraseStrokeBtn.position(180, 640);
   eraseStrokeBtn.mousePressed(() => toolMode = 'eraseStroke');
   styleButton(eraseStrokeBtn, '#EF4444');
+
+  // Hook up the AI palette panel 
+  if (window.AIPalette?.init) {
+    // Position the panel under the color wheel/preview area
+    window.AIPalette.init({ x: 40, y: 680 });
+  }
+
+  // Listen for palette events
+  window.addEventListener('ai-palette', (e) => {
+    paletteColors = Array.isArray(e.detail?.colors) ? e.detail.colors : [];
+  });
 }
 
-// Drawing UI Panel, Box, and Strokes
 function draw() {
   background('#ffffff');
   drawUIPanel();
@@ -115,6 +121,10 @@ function mousePressed() {
   if (inWheel(mouseX, mouseY)) { pickFromWheel(mouseX, mouseY); return; }
   if (inBBar(mouseX, mouseY))  { pickBrightness(mouseY);        return; }
 
+  // Click on AI palette swatches
+  const hex = swatchAt(mouseX, mouseY);
+  if (hex) { setFromHex(hex); return; }
+
   if (!inBox(mouseX, mouseY)) return;
 
   if (toolMode === 'eraseStroke') {
@@ -123,7 +133,6 @@ function mousePressed() {
     return;
   }
 
-  // Insert alpha into the color; pass opacity to Stroke
   A = opacSlider.value();
 
   if (toolMode === 'erase') {
@@ -137,7 +146,6 @@ function mousePressed() {
 function mouseDragged() {
   if (inWheel(mouseX, mouseY)) { pickFromWheel(mouseX, mouseY); return; }
   if (inBBar(mouseX, mouseY))  { pickBrightness(mouseY);        return; }
-
   if (currentStroke && inBox(mouseX, mouseY)) currentStroke.add(mouseX, mouseY);
 }
 
@@ -172,7 +180,7 @@ function pickBrightness(my) {
 
 /* ---------- Rendering  ---------- */
 function drawUIPanel() {
-  // Panel background and divider
+  // Panel background + divider
   noStroke(); fill('#ffffff'); rect(0, 0, BOX.x - 40, height);
   stroke('#111'); strokeWeight(1); line(BOX.x - 40, 0, BOX.x - 40, height);
 
@@ -187,15 +195,12 @@ function drawUIPanel() {
   const a = radians(H);
   const px = WHEEL.cx + r * cos(a);
   const py = WHEEL.cy + r * sin(a);
-
   push();
   translate(px, py);
   noStroke();
   fill(H, S, max(40, B), A);
-  circle(0, 0, 14); 
-  stroke('#111');
-  noFill();
-  circle(0, 0, 14); 
+  circle(0, 0, 14);
+  stroke('#111'); noFill(); circle(0, 0, 14);
   pop();
 
   // Brightness bar (gradient)
@@ -210,25 +215,21 @@ function drawUIPanel() {
   // Bar border
   noFill(); stroke('#111'); rect(BBAR.x, BBAR.y, BBAR.w, BBAR.h, BBAR.r);
 
-  // Brightness handle 
+  // Brightness handle
   const yPos = map(B, 0, 100, BBAR.y + BBAR.h, BBAR.y);
   fill('#ffffff'); stroke('#111'); rect(BBAR.x - 7, yPos - 8, BBAR.w + 14, 16, 8);
 
-  // Preview bar 
+  // Preview bar
   const swY = WHEEL.cy + WHEEL.r + 28;
   noStroke(); fill(H, S, B, A); rect(40, swY, 260, 28, 8);
   stroke('#111'); noFill(); rect(40, swY, 260, 28, 8);
 
-  // Readouts: HSB + RGBA
-  const c = color(H, S, B, A); // alpha in 0..100
-  const R = Math.round(red(c));
-  const G = Math.round(green(c));
-  const Bl = Math.round(blue(c));
+  // Readouts
+  const c = color(H, S, B, A);
+  const R = Math.round(red(c)), G = Math.round(green(c)), Bl = Math.round(blue(c));
   const alpha255 = Math.round(map(A, 0, 100, 0, 255));
-
   noStroke(); fill('#111'); textSize(12); textStyle(NORMAL);
-  const y1 = swY + 46;
-  const y2 = y1 + 20;
+  const y1 = swY + 46, y2 = y1 + 20;
   text(`Hue: ${Math.round(H)}°`, 40, y1);
   text(`Sat: ${Math.round(S)}%`, 100, y1);
   text(`Bri: ${Math.round(B)}%`, 165, y1);
@@ -236,12 +237,71 @@ function drawUIPanel() {
   text(`Green: ${G}`, 100, y2);
   text(`Blue: ${Bl}`, 165, y2);
   text(`Alpha: ${alpha255}`, 220, y2);
+
+  // AI Palette swatches
+  drawPaletteStrip();
 }
 
 function drawBox() {
   noStroke(); fill('#ffffff'); rect(BOX.x, BOX.y, BOX.w, BOX.h);
   stroke('#111'); strokeWeight(1); noFill(); rect(BOX.x, BOX.y, BOX.w, BOX.h);
   noStroke(); fill('#111'); textSize(14); text('Canvas', BOX.x, BOX.y - 8);
+}
+
+/* ---------- AI palette ---------- */
+function drawPaletteStrip() {
+  if (!paletteColors.length) return;
+  noStroke(); fill('#111'); textSize(12);
+
+  for (let i = 0; i < paletteColors.length; i++) {
+    const x = PALETTE.x + i * (PALETTE.sw + PALETTE.gap);
+    const y = PALETTE.y;
+    noStroke();
+    fill(0, 0, 100); rect(x - 1, y - 1, PALETTE.sw + 2, PALETTE.sw + 2, 8); // border bg
+    fill(paletteColors[i]); rect(x, y, PALETTE.sw, PALETTE.sw, 6);
+  }
+}
+
+function swatchAt(mx, my) {
+  if (!paletteColors.length) return null;
+  for (let i = 0; i < paletteColors.length; i++) {
+    const x = PALETTE.x + i * (PALETTE.sw + PALETTE.gap);
+    const y = PALETTE.y;
+    if (mx >= x && mx <= x + PALETTE.sw && my >= y && my <= y + PALETTE.sw) {
+      return paletteColors[i];
+    }
+  }
+  return null;
+}
+
+// Convert hex to H,S,B in current colorMode ranges (360,100,100)
+function setFromHex(hex) {
+  const { h, s, b } = hexToHSB(hex);
+  H = h; S = s; B = b;
+}
+
+function hexToHSB(hex) {
+  // parse #RRGGBB
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex);
+  if (!m) return { h: H, s: S, b: B };
+
+  const int = parseInt(m[1], 16);
+  const r = (int >> 16) & 255;
+  const g = (int >> 8) & 255;
+  const b8 = int & 255;
+
+  // Convert to HSB 
+  push();
+  colorMode(RGB, 255);
+  const c = color(r, g, b8);
+  colorMode(HSB, 360, 100, 100);
+  const out = {
+    h: Math.round(hue(c)),
+    s: Math.round(saturation(c)),
+    b: Math.round(brightness(c))
+  };
+  pop();
+  return out;
 }
 
 /* ---------- Save ---------- */

@@ -7,7 +7,7 @@ class Stroke {
     constructor(col, thickness = 4, opacity = 100, eraser = false) {
         this.col = col;              // color of stroke
         this.thickness = thickness;  // line thickness in pixels
-        this.opacity = this.opacity; // line opacity (0-100)
+        this.opacity = opacity;      // line opacity (0-100)
         this.points = [];            // list of points {x , y} that form the stroke
         this.eraser = eraser;        // if true, this stroke erases pixels
     }

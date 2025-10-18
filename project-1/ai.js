@@ -1,0 +1,113 @@
+/* ai.js 
+- Uses Gemini to create swatches
+*/
+
+(() => {
+  let inputEl, buttonEl, statusEl;
+  let inited = false;
+
+  let ENDPOINT = "http://localhost:8787/palette";
+
+  async function generateColors() {
+    const prompt = (inputEl.value || "").trim();
+    if (!prompt) {
+      statusEl.textContent = 'Enter a prompt (e.g., "ocean colors").';
+      return;
+    }
+
+    buttonEl.disabled = true;
+    statusEl.textContent = "Generating…";
+
+    try {
+      const resp = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ prompt })
+      });
+
+      const text = await resp.text();
+      if (!resp.ok) {
+        throw new Error(`Server error ${resp.status}: ${text}`);
+      }
+      const data = JSON.parse(text);
+
+      if (!Array.isArray(data.colors) || data.colors.length === 0) {
+        throw new Error("No colors returned from server");
+      }
+
+      // Broadcast to the main app
+      window.dispatchEvent(new CustomEvent("ai-palette", { detail: { colors: data.colors } }));
+      statusEl.textContent = `Got ${data.colors.length} colors. Click a swatch in the app.`;
+    } catch (err) {
+      console.error(err);
+      statusEl.textContent = `Error: ${err.message}`;
+      // Broadcast a fallback so the UI can react
+      window.dispatchEvent(new CustomEvent("ai-palette", { detail: { colors: ["#FF0000"] } }));
+    } finally {
+      buttonEl.disabled = false;
+    }
+  }
+
+  function init(opts = {}) {
+    if (inited) return; // avoid duplicate panels if init is called twice
+    inited = true;
+
+    // Allow endpoint override
+    if (typeof opts.endpoint === "string" && opts.endpoint.trim()) {
+      ENDPOINT = opts.endpoint.trim();
+    }
+
+    // Basic container
+    const x = opts.x ?? 40;
+    const y = opts.y ?? 340;
+
+    const wrap = document.createElement("div");
+    wrap.style.position = "absolute";
+    wrap.style.left = `${x}px`;
+    wrap.style.top = `${y}px`;
+    wrap.style.fontFamily = "Arial, sans-serif";
+    wrap.style.fontSize = "12px";
+    wrap.style.color = "#111";
+
+    const title = document.createElement("div");
+    title.innerHTML = "<b>AI Palette</b>";
+    title.style.marginBottom = "6px";
+    wrap.appendChild(title);
+
+    inputEl = document.createElement("input");
+    inputEl.type = "text";
+    inputEl.placeholder = "e.g., ocean colors";
+    inputEl.style.width = "220px";
+    inputEl.style.padding = "6px 8px";
+    inputEl.style.border = "1px solid #ddd";
+    inputEl.style.borderRadius = "8px";
+    inputEl.style.outline = "none";
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") generateColors();
+    });
+    wrap.appendChild(inputEl);
+
+    buttonEl = document.createElement("button");
+    buttonEl.textContent = "Generate Colors";
+    buttonEl.style.marginLeft = "8px";
+    buttonEl.style.padding = "8px 8px";
+    buttonEl.style.background = "#bf2ec7ff";
+    buttonEl.style.color = "#fff";
+    buttonEl.style.border = "none";
+    buttonEl.style.borderRadius = "8px";
+    buttonEl.style.cursor = "pointer";
+    buttonEl.addEventListener("click", generateColors);
+    wrap.appendChild(buttonEl);
+
+    statusEl = document.createElement("div");
+    statusEl.style.marginTop = "6px";
+    statusEl.style.color = "#444";
+    statusEl.textContent = "Type a prompt and click Generate Colors.";
+    wrap.appendChild(statusEl);
+
+    document.body.appendChild(wrap);
+  }
+
+  // Expose init on a single global
+  window.AIPalette = { init };
+})();
