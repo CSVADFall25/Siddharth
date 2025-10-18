@@ -23,7 +23,7 @@ let gWheel;
 
 // Tool mode
 let toolMode = 'draw';
-let drawBtn, eraseBtn, eraseStrokeBtn;
+let drawBtn, eraseBtn, eraseStrokeBtn, changeColorBtn; 
 
 // AI palette state
 let paletteColors = []; // array of hex strings
@@ -96,15 +96,35 @@ function setup() {
   eraseStrokeBtn.mousePressed(() => toolMode = 'eraseStroke');
   styleButton(eraseStrokeBtn, '#EF4444');
 
+  // Change button
+  changeColorBtn = createButton('Change');
+  changeColorBtn.position(290, 640);
+  changeColorBtn.mousePressed(() => toolMode = 'recolor');
+  styleButton(changeColorBtn, '#8B5CF6'); // purple
+
   // Hook up the AI palette panel 
   if (window.AIPalette?.init) {
-    // Position the panel under the color wheel/preview area
     window.AIPalette.init({ x: 40, y: 680 });
+  }
+
+  // Hook up the AI Art panel 
+  if (window.AIArt?.init) {
+    window.AIArt.init({ x: 40, y: 770 });
   }
 
   // Listen for palette events
   window.addEventListener('ai-palette', (e) => {
     paletteColors = Array.isArray(e.detail?.colors) ? e.detail.colors : [];
+  });
+
+  // Listen for AI Art results and insert as Stroke objects
+  window.addEventListener('ai-art', (e) => {
+    try {
+      const payload = e.detail;
+      addArtStrokes(payload); 
+    } catch (err) {
+      console.error('AI Art insert error:', err);
+    }
   });
 }
 
@@ -126,6 +146,20 @@ function mousePressed() {
   if (hex) { setFromHex(hex); return; }
 
   if (!inBox(mouseX, mouseY)) return;
+
+  // Recolor tool — click a stroke to apply current color/thickness/opacity
+  if (toolMode === 'recolor') {
+    const idx = findStrokeAt(mouseX, mouseY);
+    if (idx !== -1) {
+      A = opacSlider.value();
+      const s = strokes[idx];
+      s.col = color(H, S, B, A);           // change color 
+      s.thickness = thickSlider.value();   // change thickness
+      s.opacity = A;                       // keep metadata in sync
+      s.eraser = false;                    // ensure it's not an eraser stroke
+    }
+    return; // done for recolor tool
+  }
 
   if (toolMode === 'eraseStroke') {
     const idx = findStrokeAt(mouseX, mouseY);
@@ -349,4 +383,51 @@ function pointSegDist(px, py, x1, y1, x2, y2) {
   const cx = x1 + t * dx;
   const cy = y1 + t * dy;
   return dist(px, py, cx, cy);
+}
+
+/* ---------- AI Art helper ---------- */
+function addArtStrokes(art, opts = {}) {
+  // Expect shape: { strokes: [{ points:[{x,y}], color:"#RRGGBB", thickness, opacity, eraser if there }] }
+  if (!art || !Array.isArray(art.strokes)) return;
+
+  // Fit inside BOX with padding
+  const pad = 24;
+  const target = {
+    x: opts.x ?? (BOX.x + pad),
+    y: opts.y ?? (BOX.y + pad),
+    w: opts.w ?? (BOX.w - 2 * pad),
+    h: opts.h ?? (BOX.h - 2 * pad),
+  };
+
+  // Bounds of incoming art
+  let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity;
+  for (const s of art.strokes) {
+    for (const p of (s.points || [])) {
+      minx = Math.min(minx, p.x); miny = Math.min(miny, p.y);
+      maxx = Math.max(maxx, p.x); maxy = Math.max(maxy, p.y);
+    }
+  }
+  if (!isFinite(minx) || !isFinite(miny) || !isFinite(maxx) || !isFinite(maxy)) return;
+
+  const aw = Math.max(1, maxx - minx), ah = Math.max(1, maxy - miny);
+  const sx = target.w / aw, sy = target.h / ah;
+  const scale = Math.min(sx, sy);
+  const ox = target.x + (target.w - aw * scale) / 2;
+  const oy = target.y + (target.h - ah * scale) / 2;
+
+  // Build Stroke instances
+  for (const as of art.strokes) {
+    const hex = as.color || '#000000';
+    const { h, s, b } = hexToHSB(hex);
+    const alpha = typeof as.opacity === 'number' ? as.opacity : 100;
+    const thick = Math.max(1, Math.min(80, as.thickness || 4));
+    const st = new Stroke(color(h, s, b, alpha), thick, alpha, !!as.eraser);
+
+    for (const p of (as.points || [])) {
+      const tx = ox + (p.x - minx) * scale;
+      const ty = oy + (p.y - miny) * scale;
+      st.add(tx, ty);
+    }
+    if (st.points.length >= 2) strokes.push(st);
+  }
 }
