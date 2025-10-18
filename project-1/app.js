@@ -1,0 +1,234 @@
+/* App.js (clean + bright)
+   - Base application
+*/
+
+let strokes = [];
+let currentStroke = null;
+
+/* -------- Layout -------- */
+const BOX = { x: 450, y: 64, w: 1100, h: 700 }; // drawing area
+
+// Wheel + Brightness bar
+const WHEEL = { cx: 190, cy: 220, r: 120 };
+const BBAR  = { x: 330, y: 110, w: 18,  h: 224, r: 6 };
+
+// Current color (HSB + Alpha)
+let H = 16, S = 46, B = 100, A = 100; // A is 0..100 
+
+// Controls
+let thickSlider, opacSlider, saveBtn, clearBtn;
+
+// Offscreen color wheel
+let gWheel;
+
+// Set up environment
+function setup() {
+  createCanvas(windowWidth, windowHeight);
+  colorMode(HSB, 360, 100, 100, 100);
+  pixelDensity(1);
+
+  // Font
+  textFont('Arial');
+
+  // Precompute H/S wheel 
+  gWheel = createGraphics(WHEEL.r * 2 + 2, WHEEL.r * 2 + 2);
+  gWheel.colorMode(HSB, 360, 100, 100, 100);
+  gWheel.noStroke();
+  gWheel.noSmooth(); 
+  const C = gWheel.width / 2;
+  gWheel.loadPixels();
+  for (let y = 0; y < gWheel.height; y++) {
+    for (let x = 0; x < gWheel.width; x++) {
+      const dx = x - C, dy = y - C;
+      const r = Math.hypot(dx, dy);
+      if (r <= WHEEL.r) {
+        let ang = degrees(Math.atan2(dy, dx)); if (ang < 0) ang += 360;
+        const sat = map(r, 0, WHEEL.r, 0, 100, true);
+        gWheel.set(x, y, gWheel.color(ang, sat, 100));
+      } else {
+        gWheel.set(x, y, gWheel.color(0, 0, 100, 0));
+      }
+    }
+  }
+  gWheel.updatePixels();
+
+  // Controls
+  createSpan('<b>Thickness:</b>')
+    .position(40, 480)
+    .style('font-size','14px')
+    .style('font-family', 'Arial')
+    .style('color','#111');
+  thickSlider = createSlider(1, 40, 4, 1);
+  thickSlider.position(40, 500).style('width','260px');
+
+  createSpan('<b>Opacity:</b>')
+    .position(40, 530)
+    .style('font-size','14px')
+    .style('font-family', 'Arial')
+    .style('color','#111');
+  opacSlider = createSlider(0, 100, 100, 1); 
+  opacSlider.position(40, 550).style('width','260px');
+  opacSlider.input(() => { A = opacSlider.value(); });
+
+  saveBtn = createButton('Save');
+  saveBtn.position(40, 600);
+  saveBtn.mousePressed(saveCropped);
+  styleButton(saveBtn, '#2563EB'); 
+
+  clearBtn = createButton('Clear');
+  clearBtn.position(150, 600);
+  clearBtn.mousePressed(() => { strokes = []; });
+  styleButton(clearBtn, '#10B981'); 
+}
+
+// Drawing UI Panel, Box, and Strokes
+function draw() {
+  background('#ffffff');
+  drawUIPanel();
+  drawBox();
+  for (const s of strokes) s.draw(this);
+  if (currentStroke) currentStroke.draw(this);
+}
+
+/* ---------- Interaction ---------- */
+function mousePressed() {
+  if (inWheel(mouseX, mouseY)) { pickFromWheel(mouseX, mouseY); return; }
+  if (inBBar(mouseX, mouseY))  { pickBrightness(mouseY);        return; }
+
+  if (inBox(mouseX, mouseY)) {
+    // Insert alpha into the color; pass opacity to Stroke
+    A = opacSlider.value();
+    currentStroke = new Stroke(color(H, S, B, A), thickSlider.value(), A);
+    currentStroke.add(mouseX, mouseY);
+  }
+}
+function mouseDragged() {
+  if (inWheel(mouseX, mouseY)) { pickFromWheel(mouseX, mouseY); return; }
+  if (inBBar(mouseX, mouseY))  { pickBrightness(mouseY);        return; }
+
+  if (currentStroke && inBox(mouseX, mouseY)) currentStroke.add(mouseX, mouseY);
+}
+function mouseReleased() {
+  if (currentStroke) {
+    if (currentStroke.points.length >= 2) strokes.push(currentStroke);
+    currentStroke = null;
+  }
+}
+
+/* ---------- Hit tests and pickers ---------- */
+function inBox(x, y) {
+  return x >= BOX.x && x <= BOX.x + BOX.w && y >= BOX.y && y <= BOX.y + BOX.h;
+}
+function inWheel(x, y) {
+  const dx = x - WHEEL.cx, dy = y - WHEEL.cy;
+  return (dx*dx + dy*dy) <= (WHEEL.r * WHEEL.r);
+}
+function inBBar(x, y) {
+  return x >= BBAR.x && x <= BBAR.x + BBAR.w && y >= BBAR.y && y <= BBAR.y + BBAR.h;
+}
+function pickFromWheel(mx, my) {
+  const dx = mx - WHEEL.cx, dy = my - WHEEL.cy;
+  let ang = degrees(Math.atan2(dy, dx)); if (ang < 0) ang += 360;
+  const r = Math.min(WHEEL.r, Math.hypot(dx, dy));
+  H = ang;
+  S = Math.round(map(r, 0, WHEEL.r, 0, 100, true));
+}
+function pickBrightness(my) {
+  B = Math.round(map(constrain(my, BBAR.y, BBAR.y + BBAR.h), BBAR.y + BBAR.h, BBAR.y, 0, 100));
+}
+
+/* ---------- Rendering  ---------- */
+function drawUIPanel() {
+  // Panel background and divider
+  noStroke(); fill('#ffffff'); rect(0, 0, BOX.x - 40, height);
+  stroke('#111'); strokeWeight(1); line(BOX.x - 40, 0, BOX.x - 40, height);
+
+  // Title
+  noStroke(); fill('#111'); textSize(16); textStyle(BOLD); text('Tools', 40, 34);
+
+  // Wheel
+  imageMode(CENTER); image(gWheel, WHEEL.cx, WHEEL.cy);
+
+  // Pointer (circle)
+  const r = map(S, 0, 100, 0, WHEEL.r);
+  const a = radians(H);
+  const px = WHEEL.cx + r * cos(a);
+  const py = WHEEL.cy + r * sin(a);
+
+  push();
+  translate(px, py);
+  noStroke();
+  fill(H, S, max(40, B), A);
+  circle(0, 0, 14); 
+  stroke('#111');
+  noFill();
+  circle(0, 0, 14); 
+  pop();
+
+  // Brightness bar (gradient)
+  noFill(); strokeWeight(1);
+  for (let i = 0; i < BBAR.h; i++) {
+    const t = 1 - i / (BBAR.h - 1);
+    const bri = t * 100;
+    stroke(H, S, bri);
+    line(BBAR.x, BBAR.y + i, BBAR.x + BBAR.w, BBAR.y + i);
+  }
+
+  // Bar border
+  noFill(); stroke('#111'); rect(BBAR.x, BBAR.y, BBAR.w, BBAR.h, BBAR.r);
+
+  // Brightness handle (pill)
+  const yPos = map(B, 0, 100, BBAR.y + BBAR.h, BBAR.y);
+  fill('#ffffff'); stroke('#111'); rect(BBAR.x - 7, yPos - 8, BBAR.w + 14, 16, 8);
+
+  // Preview bar 
+  const swY = WHEEL.cy + WHEEL.r + 28;
+  noStroke(); fill(H, S, B, A); rect(40, swY, 260, 28, 8);
+  stroke('#111'); noFill(); rect(40, swY, 260, 28, 8);
+
+  // Readouts: HSB + RGBA
+  const c = color(H, S, B, A); // alpha in 0..100
+  const R = Math.round(red(c));
+  const G = Math.round(green(c));
+  const Bl = Math.round(blue(c));
+  const alpha255 = Math.round(map(A, 0, 100, 0, 255));
+
+  noStroke(); fill('#111'); textSize(12); textStyle(NORMAL);
+  const y1 = swY + 46;
+  const y2 = y1 + 20;
+  text(`Hue: ${Math.round(H)}°`, 40, y1);
+  text(`Sat: ${Math.round(S)}%`, 100, y1);
+  text(`Bri: ${Math.round(B)}%`, 165, y1);
+  text(`Red: ${R}`, 40, y2);
+  text(`Green: ${G}`, 100, y2);
+  text(`Blue: ${Bl}`, 165, y2);
+  text(`Alpha: ${alpha255}`, 220, y2);
+}
+
+function drawBox() {
+  noStroke(); fill('#ffffff'); rect(BOX.x, BOX.y, BOX.w, BOX.h);
+  stroke('#111'); strokeWeight(1); noFill(); rect(BOX.x, BOX.y, BOX.w, BOX.h);
+  noStroke(); fill('#111'); textSize(14); text('Canvas', BOX.x, BOX.y - 8);
+}
+
+/* ---------- Save ---------- */
+function saveCropped() {
+  const img = get(BOX.x, BOX.y, BOX.w, BOX.h);
+  const g = createGraphics(BOX.w, BOX.h);
+  g.image(img, 0, 0);
+  g.save('drawing_cropped.png');
+  g.remove();
+}
+
+function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+
+/* ---------- Button Styles ---------- */
+function styleButton(btn, bg) {
+  btn.style('background', bg);
+  btn.style('color', '#fff');
+  btn.style('border', 'none');
+  btn.style('padding', '8px 12px');
+  btn.style('border-radius', '8px');
+  btn.style('font-size', '12px');
+  btn.style('cursor', 'pointer');
+}
