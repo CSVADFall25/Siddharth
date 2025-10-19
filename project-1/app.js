@@ -9,8 +9,8 @@ let currentStroke = null;
 const BOX = { x: 450, y: 64, w: 1100, h: 700 }; 
 
 // Wheel + Brightness bar
-const WHEEL = { cx: 190, cy: 220, r: 120 };
-const BBAR  = { x: 330, y: 110, w: 18,  h: 224, r: 6 };
+const WHEEL = { cx: 190, cy: 150, r: 120 };
+const BBAR  = { x: 330, y: 35, w: 18,  h: 224, r: 6 };
 
 // Current color (HSB + Alpha)
 let H = 16, S = 46, B = 100, A = 100; 
@@ -70,25 +70,25 @@ function setup() {
 
   // Controls
   createSpan('<b>Thickness:</b>')
-    .position(40, 480)
+    .position(40, 380)
     .style('font-size','14px').style('font-family','Arial').style('color','#111');
   thickSlider = createSlider(1, 40, 4, 1);
-  thickSlider.position(40, 500).style('width','260px');
+  thickSlider.position(40, 400).style('width','260px');
 
   createSpan('<b>Opacity:</b>')
-    .position(40, 530)
+    .position(40, 420)
     .style('font-size','14px').style('font-family','Arial').style('color','#111');
   opacSlider = createSlider(0, 100, 100, 1);
-  opacSlider.position(40, 550).style('width','260px');
+  opacSlider.position(40, 440).style('width','260px');
   opacSlider.input(() => { A = opacSlider.value(); });
 
   saveBtn = createButton('Save');
-  saveBtn.position(40, 600);
+  saveBtn.position(275, 550);
   saveBtn.mousePressed(saveCropped);
   styleButton(saveBtn, '#2563EB');
 
   clearBtn = createButton('Clear');
-  clearBtn.position(150, 600);
+  clearBtn.position(185, 550);
   clearBtn.mousePressed(() => {
     strokes = [];
     selectedStrokeIdx = -1; selectedVertexIdx = -1;
@@ -97,42 +97,42 @@ function setup() {
   styleButton(clearBtn, '#10B981');
 
   drawBtn = createButton('Draw');
-  drawBtn.position(40, 640);
+  drawBtn.position(30, 510);
   drawBtn.mousePressed(() => setMode('draw'));
   styleButton(drawBtn, '#374151');
 
   eraseBtn = createButton('Erase');
-  eraseBtn.position(100, 640);
+  eraseBtn.position(30, 550);
   eraseBtn.mousePressed(() => setMode('erase'));
   styleButton(eraseBtn, '#F59E0B');
 
-  eraseStrokeBtn = createButton('Erase Stroke');
-  eraseStrokeBtn.position(166, 640);
+  eraseStrokeBtn = createButton('Delete');
+  eraseStrokeBtn.position(100, 550);
   eraseStrokeBtn.mousePressed(() => setMode('eraseStroke'));
   styleButton(eraseStrokeBtn, '#EF4444');
 
   changeColorBtn = createButton('Change');
-  changeColorBtn.position(282, 640);
+  changeColorBtn.position(100, 510);
   changeColorBtn.mousePressed(() => setMode('recolor'));
   styleButton(changeColorBtn, '#8B5CF6');
 
   vertexBtn = createButton('Vertex');
-  vertexBtn.position(352, 640);
+  vertexBtn.position(185, 510);
   vertexBtn.mousePressed(() => setMode('vertex'));
   styleButton(vertexBtn, '#0EA5E9');
 
   moveBtn = createButton('Move');
-  moveBtn.position(420, 640);
+  moveBtn.position(265, 510);
   moveBtn.mousePressed(() => setMode('move'));
   styleButton(moveBtn, '#22C55E');
 
   // Vertex count slider 
-  vertSliderLabel = createSpan('<b>Vertices:</b> (select a stroke)')
-    .position(40, 680)
+  vertSliderLabel = createSpan('<b>Vertices:</b> (Vertex Mode Only)')
+    .position(40, 460)
     .style('font-size','14px').style('font-family','Arial').style('color','#111');
 
   vertSlider = createSlider(2, 500, 50, 1);
-  vertSlider.position(40, 700).style('width','260px');
+  vertSlider.position(40, 480).style('width','260px');
   vertSlider.attribute('disabled', '');
   vertSlider.input(() => {
     if (toolMode !== 'vertex') return;
@@ -142,8 +142,8 @@ function setup() {
     strokes[i].points = resamplePoints(strokes[i].points, targetN);
   });
 
-  if (window.AIPalette?.init) window.AIPalette.init({ x: 40, y: 740 });
-  if (window.AIArt?.init) window.AIArt.init({ x: 40, y: 830 });
+  if (window.AIPalette?.init) window.AIPalette.init({ x: 40, y: 680 });
+  if (window.AIArt?.init) window.AIArt.init({ x: 40, y: 590 });
 
   window.addEventListener('ai-palette', (e) => {
     paletteColors = Array.isArray(e.detail?.colors) ? e.detail.colors : [];
@@ -616,7 +616,7 @@ function enableVertSliderFor(s) {
 }
 function disableVertSlider() {
   vertSlider.attribute('disabled', '');
-  vertSliderLabel.html('<b>Vertices:</b> (select a stroke)');
+  vertSliderLabel.html('<b>Vertices:</b> (Vertex Mode Only)');
 }
 
 /* ---------- MOVE helpers ---------- */

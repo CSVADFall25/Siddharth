@@ -115,7 +115,7 @@
 
     inputEl = document.createElement("input");
     inputEl.type = "text";
-    inputEl.placeholder = "e.g., add a star on top of the Christmas tree";
+    inputEl.placeholder = "e.g., beach on a sunny day";
     inputEl.style.width = "220px";
     inputEl.style.padding = "6px 8px";
     inputEl.style.border = "1px solid #ddd";

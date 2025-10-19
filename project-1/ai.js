@@ -76,7 +76,7 @@
 
     inputEl = document.createElement("input");
     inputEl.type = "text";
-    inputEl.placeholder = "e.g., ocean colors";
+    inputEl.placeholder = "e.g., night sky";
     inputEl.style.width = "220px";
     inputEl.style.padding = "6px 8px";
     inputEl.style.border = "1px solid #ddd";
