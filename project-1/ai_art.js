@@ -104,7 +104,7 @@
     wrap.style.position = "absolute";
     wrap.style.left = `${x}px`;
     wrap.style.top = `${y}px`;
-    wrap.style.fontFamily = "Arial, sans-serif";
+    wrap.style.fontFamily = "cursive";
     wrap.style.fontSize = "12px";
     wrap.style.color = "#111";
 
@@ -121,6 +121,7 @@
     inputEl.style.border = "1px solid #ddd";
     inputEl.style.borderRadius = "8px";
     inputEl.style.outline = "none";
+    inputEl.style.fontFamily = "cursive";
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") generateArt();
     });
@@ -135,6 +136,7 @@
     buttonEl.style.border = "none";
     buttonEl.style.borderRadius = "8px";
     buttonEl.style.cursor = "pointer";
+    buttonEl.style.fontFamily = "cursive";
     buttonEl.addEventListener("click", generateArt);
     wrap.appendChild(buttonEl);
 

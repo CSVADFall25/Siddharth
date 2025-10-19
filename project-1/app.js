@@ -6,7 +6,7 @@ let strokes = [];
 let currentStroke = null;
 
 /* -------- Layout -------- */
-const BOX = { x: 450, y: 64, w: 1100, h: 700 }; 
+const BOX = { x: 450, y: 70, w: 1100, h: 700 }; 
 
 // Wheel + Brightness bar
 const WHEEL = { cx: 190, cy: 150, r: 120 };
@@ -43,7 +43,7 @@ function setup() {
   createCanvas(windowWidth, windowHeight);
   colorMode(HSB, 360, 100, 100, 100);
   pixelDensity(1);
-  textFont('Arial');
+  textFont('cursive');
 
   // Precompute H/S wheel
   gWheel = createGraphics(WHEEL.r * 2 + 2, WHEEL.r * 2 + 2);
@@ -71,13 +71,13 @@ function setup() {
   // Controls
   createSpan('<b>Thickness:</b>')
     .position(40, 380)
-    .style('font-size','14px').style('font-family','Arial').style('color','#111');
+    .style('font-size','14px').style('font-family','cursive').style('color','#111');
   thickSlider = createSlider(1, 40, 4, 1);
   thickSlider.position(40, 400).style('width','260px');
 
   createSpan('<b>Opacity:</b>')
     .position(40, 420)
-    .style('font-size','14px').style('font-family','Arial').style('color','#111');
+    .style('font-size','14px').style('font-family','cursive').style('color','#111');
   opacSlider = createSlider(0, 100, 100, 1);
   opacSlider.position(40, 440).style('width','260px');
   opacSlider.input(() => { A = opacSlider.value(); });
@@ -129,7 +129,7 @@ function setup() {
   // Vertex count slider 
   vertSliderLabel = createSpan('<b>Vertices:</b> (Vertex Mode Only)')
     .position(40, 460)
-    .style('font-size','14px').style('font-family','Arial').style('color','#111');
+    .style('font-size','14px').style('font-family','cursive').style('color','#111');
 
   vertSlider = createSlider(2, 500, 50, 1);
   vertSlider.position(40, 480).style('width','260px');
@@ -350,7 +350,7 @@ function drawUIPanel() {
   rect(0, 0, BOX.x - 40, height);
   stroke('#111');
   strokeWeight(1);
-  line(BOX.x - 40, 0, BOX.x - 40, height);
+  line(BOX.x - 25, 0, BOX.x - 25, height);
 
   noStroke();
   fill('#111');
@@ -429,8 +429,15 @@ function drawBox() {
   rect(BOX.x, BOX.y, BOX.w, BOX.h);
   noStroke();
   fill('#111');
-  textSize(14);
-  text('Canvas', BOX.x, BOX.y - 8);
+  textSize(42);
+  textStyle(BOLD);
+  textFont('cursive');
+  text('Art Generator', BOX.x * 1.9, BOX.y - 20);
+  textStyle(ITALIC);
+  textFont('cursive');  
+  textSize(16);
+  fill('#444');          
+  text('By: Siddharth Chattoraj', BOX.x + BOX.w - 185, BOX.y + BOX.h + 22.5);
 }
 
 /* ---------- AI palette ---------- */
@@ -487,6 +494,7 @@ function styleButton(btn, bg) {
   btn.style('border', 'none');
   btn.style('padding', '8px 12px');
   btn.style('border-radius', '8px');
+  btn.style('font-family', 'cursive');
   btn.style('font-size', '12px');
   btn.style('cursor', 'pointer');
 }
@@ -499,7 +507,7 @@ function setMode(mode) {
     vertex: vertexBtn, move: moveBtn
   };
   const active = mapBtn[mode];
-  if (active) active.style('box-shadow', '0 0 0 3px rgba(17,24,39,.25)');
+  if (active) active.style('box-shadow', '0 0 0 3px rgba(196, 140, 191, 0.68)');
 
   if (mode !== 'vertex') {
     draggingVertex = false;
