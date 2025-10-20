@@ -1,7 +1,15 @@
-/* server.js — REST version using Gemini 2.5 Flash
-- Consulted ChatGPT5 for
-    - 
-- Primarily consulted the following websites
+/* server.js — Using Gemini 2.5 Flash
+- Hosts Express routes (/palette, /art, /list-models) that call the Gemini 2.5 Flash API
+  to generate color palettes and vector stroke art, validate JSON, and return responses.
+-  I consulted ChatGPT5 for the following:
+    - Help with creating the server architecture and request–response flow
+    - Help with debugging errors with integrating the API calls
+- Primarily consulted the following:
+    - https://ai.google.dev/gemini-api/docs (Gemini API integration)
+    - https://expressjs.com/ (ExpressJS documentation)
+    - https://github.com/expressjs/cors (CORS)
+    - Various Google search results while debugging.
+    - My experience interning at Amazon this past summer building AI agents and designing system prompts
 */
 import express from "express";
 import cors from "cors";

@@ -1,5 +1,10 @@
 /* store.js
    Frame storage: panel UI, cloning, thumbnails, and render helpers
+   - Consulted ChatGPT5 for
+    - Assistance in constructing the panel UI logic, organizing frame data structures,
+         and debugging thumbnail generation and event handling.
+   - Primarily consulted the following websites:
+    - https://p5js.org/reference/ (for p5.js)
 */
 
 (function (root) {
@@ -80,7 +85,7 @@
     }
   };
 
-  // C/oning / converts / thumbs 
+  // Cloning / converts / thumbs 
   function _cloneVector(strokes) {
     return strokes
       .map(s => ({
@@ -122,7 +127,7 @@
     return url;
   }
 
-  // Ppanel ----------
+  // Panel
   function _ensurePanel() {
     // Remove existing if re-init
     if (storePanel && storePanel.remove) storePanel.remove();

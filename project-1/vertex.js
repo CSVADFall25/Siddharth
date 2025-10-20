@@ -1,5 +1,7 @@
 /* vertex.js
-   Vertex mode utilities
+   - This file adds tools for editing and reshaping drawn lines by letting users select, move, and resample individual vertices on a stroke.
+   - Consulted ChatGPT5 for help with defining and refining the point-projection mathematics and debugging logic issues in JavaScript.
+   - Consulted https://p5js.org/reference/ for p5.js.
 */
 
 (function (root) {
@@ -7,15 +9,18 @@
   let clampX = (x) => x;
   let clampY = (y) => y;
 
+  // Coordinate clamping
   Vertex.configure = function ({ clampToBoxX, clampToBoxY } = {}) {
     if (typeof clampToBoxX === 'function') clampX = clampToBoxX;
     if (typeof clampToBoxY === 'function') clampY = clampToBoxY;
   };
 
+  // Determines how close mouse should be to detect a vertex
   Vertex.hitTolerance = function (s) {
     return Math.max(10, (s?.thickness || 0) / 2 + 6);
   };
 
+  // Finds nearest vertext to given point
   Vertex.closestVertexIndex = function (points, x, y, tol) {
     if (!Array.isArray(points)) return -1;
     let best = -1, bestD = Infinity;
@@ -26,6 +31,7 @@
     return best;
   };
 
+  // Finds the closest projected point along any stroke segment
   Vertex.closestSegmentProjection = function (points, x, y) {
     if (!points || points.length < 2) return null;
     let best = null;
@@ -37,6 +43,7 @@
     return best;
   };
 
+  // Draws the editable vertex handles and connecting lines
   Vertex.drawHandles = function (s, selectedVertexIdx = -1) {
     if (!s || !Array.isArray(s.points)) return;
     noFill(); stroke(0, 0, 20, 60); strokeWeight(1);
@@ -48,6 +55,7 @@
     }
   };
 
+  // Enables a vertex-count slider (removed from final product because of UI space)
   Vertex.enableSliderFor = function (s, slider, label) {
     if (!slider || !label || !s) return;
     const n = Math.max(2, s.points?.length || 0);
@@ -57,12 +65,14 @@
     try { label.html('<b>Vertices:</b>'); } catch (_) {}
   };
 
+  // Disables the slider outside of vertex mode (removed from final product because of UI space)
   Vertex.disableSlider = function (slider, label) {
     if (!slider || !label) return;
     try { slider.attribute('disabled', ''); } catch (_) {}
     try { label.html('<b>Vertices:</b> (Vertex Mode Only)'); } catch (_) {}
   };
 
+  // Resamples a stroke to evenly spaced points for smoother geometry
   Vertex.resamplePoints = function (points, N) {
     if (!Array.isArray(points) || points.length < 2) return points ? points.slice() : [];
     N = Math.max(2, Math.floor(N));

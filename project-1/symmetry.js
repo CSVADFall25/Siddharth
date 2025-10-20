@@ -1,5 +1,11 @@
 /* symmetry.js
-   - Centralizes symmetry modes, transforms, and UI
+   - Defines 180 degree rotational, 4-way rotational, mirrored, radial, dihedral, spiral, kaleidoscopic, and fractal symmetry
+   - I defined the symmetries, did the UI (albeit with Copilot completions), and did the 180 degree rotation and 4-way rotation math myself
+   - I consulted ChatGPT 5 for assistance with the mathematics for the other symmetries
+      and with debugging JavaScript syntax errors.
+   - Primarily consulted the following:
+      - https://helpingwithmath.com/180-degree-rotation/ 
+      - https://en.wikipedia.org/wiki/Rotational_symmetry 
 */
 
 (function () {
@@ -31,13 +37,13 @@
     const { cx, cy } = boxCenter(BOX);
 
     switch (mode) {
-      // Core set
+      // 180 degree rotation
       case 'rot180':
         return [
           (x, y) => ({ x, y }),
           (x, y) => rotateAbout(x, y, cx, cy, Math.PI),
         ];
-
+      // 4 way rotation
       case 'rot4':
         return [
           (x, y) => ({ x, y }),
