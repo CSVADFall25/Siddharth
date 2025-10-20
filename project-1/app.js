@@ -139,13 +139,63 @@ function setup() {
   changeColorBtn.mousePressed(() => setMode('recolor'));
   styleButton(changeColorBtn, '#8B5CF6');
 
+  // Custom tooltip
+  let ctooltip = createDiv(`• Set thickness, opacity, and color<br> 
+    • Click stroke to change`);
+  ctooltip.style('position', 'absolute');
+  ctooltip.style('background', 'rgba(0,0,0,0.85)');
+  ctooltip.style('color', '#fff');
+  ctooltip.style('padding', '6px 8px');
+  ctooltip.style('border-radius', '6px');
+  ctooltip.style('font-size', '12px');
+  ctooltip.style('line-height', '1.3em');
+  ctooltip.style('max-width', '210px');
+  ctooltip.style('pointer-events', 'none');
+  ctooltip.style('display', 'none');
+  ctooltip.style('z-index', '10');
+
+  // Show / hide tooltip on hover
+  changeColorBtn.mouseOver(() => {
+    ctooltip.position(changeColorBtn.x + 70, changeColorBtn.y - 5);
+    ctooltip.style('display', 'block');
+  });
+  changeColorBtn.mouseOut(() => {
+    ctooltip.style('display', 'none');
+  });
+
   vertexBtn = createButton('Vertex');
-  vertexBtn.position(190, 485);
+  vertexBtn.position(200, 485);
   vertexBtn.mousePressed(() => setMode('vertex'));
   styleButton(vertexBtn, '#0EA5E9');
 
+  // Custom tooltip
+  let tooltip = createDiv(`• Click stroke to view vertices.<br>
+  • Click and drag vertex to move.<br>
+  • Shift+click to add.<br>
+  • Backspace or delete to remove.`);
+  tooltip.style('position', 'absolute');
+  tooltip.style('background', 'rgba(0,0,0,0.85)');
+  tooltip.style('color', '#fff');
+  tooltip.style('padding', '6px 8px');
+  tooltip.style('border-radius', '6px');
+  tooltip.style('font-size', '12px');
+  tooltip.style('line-height', '1.3em');
+  tooltip.style('max-width', '210px');
+  tooltip.style('pointer-events', 'none');
+  tooltip.style('display', 'none');
+  tooltip.style('z-index', '10');
+
+  // Show / hide tooltip on hover
+  vertexBtn.mouseOver(() => {
+    tooltip.position(vertexBtn.x + 70, vertexBtn.y - 5);
+    tooltip.style('display', 'block');
+  });
+  vertexBtn.mouseOut(() => {
+    tooltip.style('display', 'none');
+  });
+
   moveBtn = createButton('Move');
-  moveBtn.position(270, 485);
+  moveBtn.position(280, 485);
   moveBtn.mousePressed(() => setMode('move'));
   styleButton(moveBtn, '#22C55E');
 

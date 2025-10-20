@@ -124,10 +124,10 @@ app.post("/art", async (req, res) => {
   try {
     if (!userPrompt) throw new Error("No prompt provided");
 
-    const sys = `You are a vector line art generator for a drawing canvas.
+    const sys = `You are a detailed vector line art generator for a drawing canvas.
 
 INPUT:
-- "prompt": user request (e.g., "add a star on top of the Christmas tree").
+- "prompt": user request (e.g., "beach on a sunny day").
 - "existing": OPTIONAL array of current strokes, each:
   { "color":"#RRGGBB" | null, "thickness":number, "opacity":number,
     "eraser":false, "points":[{"x":number,"y":number}, ...] }
@@ -143,6 +143,10 @@ PLACEMENT & COMPOSITION:
   2) If found, place the new strokes appropriately relative to that subject (e.g., star centered above the tree apex).
   3) If NOT found, sketch a minimal, recognizable version of that subject first, then add the requested detail.
 - Preserve overall scale and placement; integrate into current composition, not overwrite it.
+
+NEW DRAWINGS:
+- Be at detailed as possible by using a mixture of short and long strokes to create a recognizeable drawing. 
+- However, stay within the stroke constraints: Total new strokes: 20..60. Total points across all new strokes ≤ 15000.
 
 STYLE:
 - Match existing palette (prefer colors already present); you may add up to 2 harmonious new hues.
@@ -163,8 +167,7 @@ OUTPUT (JSON ONLY; no backticks, no comments):
 }
 
 CONSTRAINTS:
-- Total new strokes: 10..60. Total points across all new strokes ≤ 15000.
-- Coordinates must remain in the same local space as "existing" (0..1000 recommended).
+- Total new strokes: 20..60. Total points across all new strokes ≤ 15000.
 - Colors: 6-digit hex only.
 - Geometry hygiene: no NaN/Infinity, no duplicate consecutive points, avoid zero-length segments.
 - Avoid drawing on top of existing strokes unless the user asks to modify or fill a drawing.
