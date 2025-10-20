@@ -70,8 +70,9 @@
     wrap.style.color = "#111";
 
     const title = document.createElement("div");
-    title.innerHTML = "<b>AI Palette</b>";
+    title.innerHTML = "<b>AI Palette:</b>";
     title.style.marginBottom = "6px";
+    title.style.fontSize = "14px";
     wrap.appendChild(title);
 
     inputEl = document.createElement("input");
@@ -83,6 +84,7 @@
     inputEl.style.borderRadius = "8px";
     inputEl.style.outline = "none";
     inputEl.style.fontFamily = "cursive";
+    inputEl.style.fontSize = "12px";
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") generateColors();
     });
@@ -92,12 +94,15 @@
     buttonEl.textContent = "Generate Colors";
     buttonEl.style.marginLeft = "8px";
     buttonEl.style.padding = "8px 8px";
-    buttonEl.style.background = "#bf2ec7ff";
+    buttonEl.style.background = "#207c1bff";
     buttonEl.style.color = "#fff";
     buttonEl.style.border = "none";
     buttonEl.style.borderRadius = "8px";
     buttonEl.style.cursor = "pointer";
     buttonEl.style.fontFamily = "cursive";
+    buttonEl.style.fontSize = "12px";
+    buttonEl.style.minWidth = '120px'; 
+    buttonEl.style.height = '32px';
     buttonEl.addEventListener("click", generateColors);
     wrap.appendChild(buttonEl);
 
@@ -110,6 +115,5 @@
     document.body.appendChild(wrap);
   }
 
-  // Expose init on a single global
   window.AIPalette = { init };
 })();

@@ -1,19 +1,15 @@
 /* ai_art.js
-   - AI Art panel that POSTs { prompt, existing } to /art
-   - Expects server to return: { "strokes": [ { color, thickness, opacity, eraser, points:[{x,y},...] } ] }
+   - Uses Gemini to create art with strokes
 */
 
 (() => {
   let inputEl, buttonEl, statusEl;
   let inited = false;
-
-  // Default endpoint; override via AIArt.init({ endpoint })
   let ENDPOINT = "http://localhost:8787/art";
 
   function serializeExisting() {
-    // Pull the current canvas strokes into plain JSON (color may be unknown → null)
+    // Pull the current canvas strokes into plain JSON 
     if (!Array.isArray(window.strokes)) return [];
-    // Keep it compact and safe
     return window.strokes.map((s) => ({
       color: null, 
       thickness: Number(s.thickness) || 4,
@@ -63,7 +59,7 @@
         throw new Error("No 'strokes' array in response");
       }
 
-      // Broadcast to the main app → App.js listens for "ai-art" and inserts strokes
+      // App.js listens for "ai-art" and inserts strokes
       window.dispatchEvent(new CustomEvent("ai-art", { detail: data }));
 
       statusEl.textContent = `Placed ${data.strokes.length} stroke${data.strokes.length === 1 ? "" : "s"} on canvas.`;
@@ -109,8 +105,9 @@
     wrap.style.color = "#111";
 
     const title = document.createElement("div");
-    title.innerHTML = "<b>AI Art</b>";
+    title.innerHTML = "<b>AI Art:</b>";
     title.style.marginBottom = "6px";
+    title.style.fontSize = "14px";
     wrap.appendChild(title);
 
     inputEl = document.createElement("input");
@@ -122,6 +119,7 @@
     inputEl.style.borderRadius = "8px";
     inputEl.style.outline = "none";
     inputEl.style.fontFamily = "cursive";
+    inputEl.style.fontSize = "12px";
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter") generateArt();
     });
@@ -131,12 +129,15 @@
     buttonEl.textContent = "Generate Art";
     buttonEl.style.marginLeft = "8px";
     buttonEl.style.padding = "8px 8px";
-    buttonEl.style.background = "#111827";
+    buttonEl.style.background = "#d75f7dff";
     buttonEl.style.color = "#fff";
     buttonEl.style.border = "none";
     buttonEl.style.borderRadius = "8px";
     buttonEl.style.cursor = "pointer";
     buttonEl.style.fontFamily = "cursive";
+    buttonEl.style.fontSize = "12px";
+    buttonEl.style.minWidth = '120px'; 
+    buttonEl.style.height = '32px';
     buttonEl.addEventListener("click", generateArt);
     wrap.appendChild(buttonEl);
 
