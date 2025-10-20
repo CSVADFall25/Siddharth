@@ -1,5 +1,6 @@
 # Pattern Illustrator
 **MAT 236: Project 1**
+
 **By: Siddharth Chattoraj**
 
 ## Overview
@@ -17,14 +18,23 @@ At the bottom of the tools section, there are two AI prompt sections: `AI Art` a
 To animate drawings, users must have at least two drawings stored. Storing does not automatically clear the canvas, but users are welcome to clear the canvas as they see fit between stored drawings for an animation. They can set the `Ease` and `Animation Duration` via a dropdown and slider respectively in the tools panel. Pressing `Animate` will render an animation in the Canvas.
 
 ## Design
+The aim of Pattern Illustrator is to enable users to create expressive meaning out of nuances in existing structures. Consequently, at no point is the user able to "free draw", but they are able to "free modify" individual strokes within their illustrations. 
 
-At no point is the user able to "free draw", but they are able to "free modify" their illustrations.
+The idea for a drawing tool that could simulateously provide the ability to animate originated from both my experience creating animations and projections for dance shows (where it was very difficult to prototype and design animations when I first started without any experience) and from reading the 2025 paper [Narrative Motion Blocks: Combining Direct Manipulation and Natural Language Interactions for Animation Creation](https://dl.acm.org/doi/10.1145/3715336.3735766) by Samuelle Bourgault, et al. I loved that Sam created a tool that could enable motion path manipulation, but I wanted to create a tool that is even simpler, allowing users who may not have any experience with drawing animation to focus on bringing out the nuances within structures (a very important skill I have found crucial to design development in animation and projection, especially when working within constraints such as only being allowed to use a certain type of art or style to tell a story) and test out animations with a click of the button.
 
-- indivual strokes modoifying goal
+My process designing Pattern Illustrator was that of iterative prorotyping and scaling. I initially began by figuring out how to call the Gemini API, as I have found AI tools to be helpful in my own design work (but only if used symbiotically rather than as a crutch), and from there I was able to generate visual swatches. Afterwards, I designed a basic UI layout for the application and built the `Stroke` class that is the foundation of the entire tool. From there, I used rapid prototyping, testing, and scaling to add the features and buttons for manipulating drawings above. Once I had enough drawing features and the `Stroke` class set, I adapted my AI Palette Generator into an AI Artwork generator that would, after around 30-60 seconds of generating time, automatically create a series of strokes related to the theme that could be modified. This was one of the biggest leaps that I made, since from here, I could now quickly generate drawings and modify them within the same tool (which I had not been able to do as much in any other tool that I have used). I consequently added more features (e.g. vertex, move, etc.) to further enhance the ability of the user to design strokes.
+
+I knew that I wanted to create an animation tool because I was hoping to _______.
+
+I did not decide upon having the user be constrained to only symmetrical drawings until the very end, as I was debating between a variety of different constraints (e.g. computer-vision based drawing tool with pinching fingers, calligraphy lettering tool, paint brush tool, watercolor tool, mathematical equations as art tool, Logo-like tool with controlling the brush via programming commands, etc.). I prototyped a variety of these throughout my process with AI (and found AI creates really sloppy work when you tell it to go create a tool), but even accounting for the sloppiness of AI, I did not enjoy any of the prorotypes I had created as they were difficult to control, the resulting drawing was not visually appealing, and they did not allow me to do and improve an action or a design that I had not really had the chance to do before. Consequently, I switched to a symmetry-based constraint, which made the once-free hand drawings much more visually stylized (and hence appealing) and fit within my goal of creating a tool that enables the user to create nuance and meaning out of structure efficiently. 
+
+Since the user is able to modify individual strokes within symmetrical or AI-generated pattern illustrations, they are able to _____. 
 
 ## Reflections and Outcomes
 
-- todo
+I enjoyed using the Pattern Illustrator tool I created, which was also a goal of mine (to have fun), as sketching and animation can be painful when the art does not appear visually clean or the movements have to be individually set, parameter-by-parameter and keyframe-by-keyframe. From my experience designing artworks and animations, I have found that the best artwork I create comes when I have fun doing so (and I had fun creating this tool, hence the plethora of features of drawing and animation created to maximize it), so I strived to incorporate that into my design. 
+
+- future work (allow more modifications, pattnerns, complex animations, make ai modify the drawing too and improve reading capabilities)
 
 ## Instructions to run with AI features
 1. Clone the repository.
