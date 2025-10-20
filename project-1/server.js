@@ -59,7 +59,8 @@ app.post("/palette", async (req, res) => {
     const sys = `You are a color palette generator.
 ONLY return a valid JSON object in this format: {"colors":["#RRGGBB","#RRGGBB"]}.
 Each color must be a valid 6-digit hex code starting with #.
-Generate between 3–6 colors that work well together.
+Generate between 4-5 colors that work well together.
+Do not include comments, explanations, markdown, or any text outside of the JSON object because they will cause critical errors.
 No other text or explanation.`;
 
     const fullPrompt = `${sys}\n\nUser requested colors for: ${user}`;
@@ -173,7 +174,8 @@ CONSTRAINTS:
 - Avoid drawing on top of existing strokes unless the user asks to modify or fill a drawing.
 
 VALIDATION:
-- Return a single JSON object matching the schema above. No extra keys. No markdown.`;
+- Return a single JSON object matching the schema above. No extra keys. No markdown.
+- Do not include comments, explanations, markdown, or any text outside of the JSON object because they will cause critical errors.`;
 
     // Put user inputs as compact JSON after the instructions
     const userJson = JSON.stringify({ prompt: userPrompt, existing });
