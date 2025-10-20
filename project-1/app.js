@@ -574,7 +574,7 @@ function drawUIPanel() {
 function drawBox() {
   noStroke(); fill('#ffffff'); rect(BOX.x, BOX.y, BOX.w, BOX.h);
   stroke('#111'); strokeWeight(1); noFill(); rect(BOX.x, BOX.y, BOX.w, BOX.h);
-  noStroke(); fill('#111'); textSize(42); textStyle(BOLD); textFont('cursive'); text('Symmetric Drawing Animator', BOX.x * 1.6, BOX.y - 20);
+  noStroke(); fill('#111'); textSize(42); textStyle(BOLD); textFont('cursive'); text('Symmetric or AI Illustrator', BOX.x * 1.6, BOX.y - 20);
   textStyle(ITALIC); textFont('cursive'); textSize(16); fill('#444'); text('By: Siddharth Chattoraj', BOX.x + BOX.w - 185, BOX.y + BOX.h + 22.5);
 }
 
