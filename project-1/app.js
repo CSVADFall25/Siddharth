@@ -7,10 +7,14 @@
    - Uses Vertex from vertex.js 
    - Uses ai.js for AI swatches
    - Uses ai_art.js for AI art generation
+   - Uses Symmetry from symmetry.js
 */
 
 let strokes = [];
 let currentStroke = null;
+
+// live symmetric clones for current drag
+let liveSymmetryStrokes = [];
 
 // Layout
 const BOX = { x: 450, y: 70, w: 1100, h: 550 };
@@ -139,7 +143,7 @@ function setup() {
   changeColorBtn.mousePressed(() => setMode('recolor'));
   styleButton(changeColorBtn, '#8B5CF6');
 
-  // Custom tooltip
+  // Custom tooltip for recolor
   let ctooltip = createDiv(`• Set thickness, opacity, and color<br> 
     • Click stroke to change`);
   ctooltip.style('position', 'absolute');
@@ -154,7 +158,6 @@ function setup() {
   ctooltip.style('display', 'none');
   ctooltip.style('z-index', '10');
 
-  // Show / hide tooltip on hover
   changeColorBtn.mouseOver(() => {
     ctooltip.position(changeColorBtn.x + 70, changeColorBtn.y - 5);
     ctooltip.style('display', 'block');
@@ -168,7 +171,7 @@ function setup() {
   vertexBtn.mousePressed(() => setMode('vertex'));
   styleButton(vertexBtn, '#0EA5E9');
 
-  // Custom tooltip
+  // Vertex tooltip
   let tooltip = createDiv(`• Click stroke to view vertices.<br>
   • Click and drag vertex to move.<br>
   • Shift+click to add.<br>
@@ -185,7 +188,6 @@ function setup() {
   tooltip.style('display', 'none');
   tooltip.style('z-index', '10');
 
-  // Show / hide tooltip on hover
   vertexBtn.mouseOver(() => {
     tooltip.position(vertexBtn.x + 70, vertexBtn.y - 5);
     tooltip.style('display', 'block');
@@ -229,6 +231,15 @@ function setup() {
     durationLabel.html(`<b>Animation Duration:</b> ${v}s`);
   });
 
+  // --- Symmetry dropdown (right side of title) ---
+  // Position to the right of the title line; tweak offsets if you adjust title placement
+  // Title baseline is around (BOX.x * 1.7, BOX.y - 20)
+  // We'll anchor the dropdown near the top-right of the box header area
+  const symX = BOX.x + BOX.w - 300;
+  const symY = BOX.y - 46;
+  // default mode lives in symmetry.js (Symmetry.mode)
+  window.Symmetry?.createDropdown(symX, symY);
+
   // AI panels
   if (window.AIArt?.init) window.AIArt.init({ x: 40, y: 640 });
   if (window.AIPalette?.init) window.AIPalette.init({ x: 40, y: 730 });
@@ -256,6 +267,7 @@ function setup() {
       const loaded = Store.loadStored(idx);
       strokes = loaded;
       currentStroke = null;
+      liveSymmetryStrokes = [];
       selectedStrokeIdx = -1;
       selectedVertexIdx = -1;
     }
@@ -269,7 +281,8 @@ function setup() {
 
   animateBtn.mousePressed(() => {
     if (Store.count() < 2) { alert('Need at least 2 stored drawings to animate.'); return; }
-    strokes = []; currentStroke = null; selectedStrokeIdx = -1; selectedVertexIdx = -1;
+    strokes = []; currentStroke = null; liveSymmetryStrokes = [];
+    selectedStrokeIdx = -1; selectedVertexIdx = -1;
     const ms = Number(durationSlider?.value() || 10) * 1000;
     Anim.start(ms);
   });
@@ -303,6 +316,9 @@ function draw() {
     withClipToBox(() => {
       for (const s of strokes) s.draw(this);
       if (currentStroke) currentStroke.draw(this);
+
+      // live symmetry preview
+      for (const s of liveSymmetryStrokes) s.draw(this);
 
       if (toolMode === 'vertex' && selectedStrokeIdx >= 0 && strokes[selectedStrokeIdx]) {
         Vertex.drawHandles(strokes[selectedStrokeIdx], selectedVertexIdx);
@@ -402,10 +418,21 @@ function mousePressed() {
     return;
   }
 
-  // Draw
+  // Draw (with symmetry)
   A = opacSlider.value();
   currentStroke = new Stroke(color(H, S, B, A), thickSlider.value(), A, false);
-  currentStroke.add(mouseX, mouseY);
+
+  // Build symmetric clones based on current Symmetry.mode
+  liveSymmetryStrokes = Symmetry.buildClones({
+    h: H, s: S, b: B, a: A, thickness: thickSlider.value()
+  }, BOX);
+
+  // seed first points into all clones via transforms
+  const transforms = Symmetry.getTransforms(BOX);
+  for (let i = 0; i < transforms.length; i++) {
+    const { x, y } = transforms[i](mouseX, mouseY);
+    liveSymmetryStrokes[i].add(x, y);
+  }
 }
 
 function mouseDragged() {
@@ -442,8 +469,14 @@ function mouseDragged() {
     return;
   }
 
-  // Freehand
-  if (currentStroke && inBox(mouseX, mouseY)) currentStroke.add(mouseX, mouseY);
+  // Freehand (with symmetry)
+  if (currentStroke && inBox(mouseX, mouseY)) {
+    const transforms = Symmetry.getTransforms(BOX);
+    for (let i = 0; i < transforms.length; i++) {
+      const { x, y } = transforms[i](mouseX, mouseY);
+      liveSymmetryStrokes[i].add(x, y);
+    }
+  }
 }
 
 function mouseReleased() {
@@ -463,10 +496,15 @@ function mouseReleased() {
     eraserPrev = null;
     return;
   }
-  if (currentStroke) {
-    if (currentStroke.points.length >= 2) strokes.push(currentStroke);
-    currentStroke = null;
+
+  // commit symmetry strokes
+  if (liveSymmetryStrokes.length) {
+    for (const s of liveSymmetryStrokes) {
+      if (s.points.length >= 2) strokes.push(s);
+    }
   }
+  currentStroke = null;
+  liveSymmetryStrokes = [];
 }
 
 // Delete/Backspace to remove selected vertex (Vertex mode)
@@ -536,7 +574,7 @@ function drawUIPanel() {
 function drawBox() {
   noStroke(); fill('#ffffff'); rect(BOX.x, BOX.y, BOX.w, BOX.h);
   stroke('#111'); strokeWeight(1); noFill(); rect(BOX.x, BOX.y, BOX.w, BOX.h);
-  noStroke(); fill('#111'); textSize(42); textStyle(BOLD); textFont('cursive'); text('Symmetric Art Animator', BOX.x * 1.7, BOX.y - 20);
+  noStroke(); fill('#111'); textSize(42); textStyle(BOLD); textFont('cursive'); text('Symmetric Drawing Animator', BOX.x * 1.6, BOX.y - 20);
   textStyle(ITALIC); textFont('cursive'); textSize(16); fill('#444'); text('By: Siddharth Chattoraj', BOX.x + BOX.w - 185, BOX.y + BOX.h + 22.5);
 }
 
@@ -585,10 +623,9 @@ function styleButton(btn, bg) {
   btn.style('font-size', '12px');
   btn.style('cursor', 'pointer');
 
-  // Make them all the same size + centered text
   btn.style('width',  BTN_W + 'px');
   btn.style('height', BTN_H + 'px');
-  btn.style('padding', '0'); // let height control it
+  btn.style('padding', '0');
   btn.style('box-sizing', 'border-box');
   btn.style('display', 'inline-flex');
   btn.style('align-items', 'center');
