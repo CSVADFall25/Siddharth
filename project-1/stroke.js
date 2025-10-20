@@ -1,6 +1,9 @@
 /* Stroke.js
 - Stores Points + Color + Data
-- Draws a Smooth Polyline
+- This is the base of all drawing
+- Draws a smooth polyline
+- I did not consult AI for this file.
+- The reference guide https://p5js.org/reference/ was helpful for functions naming and uses.
 */
 class Stroke {
     // Creates new stroke with chosen color and thickness

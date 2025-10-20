@@ -1,5 +1,10 @@
 /* ai.js 
-- Uses Gemini to create swatches
+- Uses Gemini API to create a panel of swatches
+- I consulted ChatGPT5 to help with debugging errors with integrating the API calls.
+- Primarily consulted the following websites:
+  - https://ai.google.dev/gemini-api/docs/quickstart (API integration)
+  - https://developer.mozilla.org/en-US/docs/Web/API/Fetch_API/Using_Fetch (POST requests)
+- Sends a POST request with a text prompt to the /palette Gemini API endpoint to generate and display an AI-created color palette.
 */
 
 (() => {
@@ -8,6 +13,7 @@
 
   let ENDPOINT = "http://localhost:8787/palette";
 
+  // Prompt
   async function generateColors() {
     const prompt = (inputEl.value || "").trim();
     if (!prompt) {
@@ -18,6 +24,7 @@
     buttonEl.disabled = true;
     statusEl.textContent = "Generating…";
 
+    // POST request
     try {
       const resp = await fetch(ENDPOINT, {
         method: "POST",
@@ -57,7 +64,7 @@
       ENDPOINT = opts.endpoint.trim();
     }
 
-    // Basic container
+    // UI
     const x = opts.x ?? 40;
     const y = opts.y ?? 340;
 

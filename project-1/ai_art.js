@@ -1,5 +1,8 @@
 /* ai_art.js
-   - Uses Gemini to create art with strokes
+   - Uses Gemini API to create art with strokes
+   - I created this file by duplicating ai.js and modifying it for the art prompt, so no AI was used in creating this specific file.
+   - Sends a POST request with a text prompt and the current canvas strokes to the /art Gemini API endpoint 
+      to generate new AI-drawn strokes and add them to the canvas.
 */
 
 (() => {
@@ -21,6 +24,7 @@
     }));
   }
 
+  // Prompt
   async function generateArt() {
     const prompt = (inputEl.value || "").trim();
     if (!prompt) {
@@ -33,6 +37,7 @@
     buttonEl.disabled = true;
     statusEl.textContent = "Generating…";
 
+    // POST request
     try {
       const resp = await fetch(ENDPOINT, {
         method: "POST",
@@ -95,7 +100,7 @@
     const x = Number.isFinite(opts.x) ? opts.x : 40;
     const y = Number.isFinite(opts.y) ? opts.y : 720;
 
-    // ---------- UI ----------
+    // UI
     const wrap = document.createElement("div");
     wrap.style.position = "absolute";
     wrap.style.left = `${x}px`;

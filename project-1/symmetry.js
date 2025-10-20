@@ -293,7 +293,6 @@
     return ui.select;
   }
 
-  // ---------- Public API ----------
   const Symmetry = {
     mode: 'rot180',
     N: 10,

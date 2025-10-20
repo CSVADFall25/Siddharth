@@ -1,5 +1,16 @@
 /* animation.js
-   - Create animations
+   - Create animations via interpolation
+   - Consulted ChatGPT5 for 
+    - Help with the mathematical formulas for easing, resampling, and interpolation for animation
+    - Help with debugging errors for the construction of the animation from frame to frame
+   - Primarily consulted the following websites:
+    - https://erraticgenerator.com/blog/linear-interpolation-and-easing (Linear Interpolation and Easing)
+    - https://fiveable.me/2d-animation/unit-20 (Concept of tweening)
+  - We store multiple drawings (keyframes). Each drawing is an array of strokes.
+  - For a given global time t in [0,1], we figure out which two drawings we’re between,
+      ease the local t, and create an in-between drawing by interpolating strokes.
+  - If a drawing has more strokes than the next one (or vice versa), we "ghost" the
+      extras so they fade in/out gracefully instead of popping.
 */
 
 window.Anim = (function () {
@@ -8,6 +19,7 @@ window.Anim = (function () {
     startMs: 0,
     durationMs: 10000,
 
+    // Easing functions
     Easings: {
       Linear: (t) => t,
       EaseInOutCubic: (t) => (t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t + 2, 3)/2),
@@ -31,12 +43,14 @@ window.Anim = (function () {
 
       let tGlobal = (millis() - Anim.startMs) / Anim.durationMs;
 
+      // Draw final state  
       if (tGlobal >= 1) {
         drawDrawing(storedDrawings[n - 1].strokes);
         Anim.running = false;
         return;
       }
 
+      // Figure out which two drawings we are between
       const ease = Anim.getEase(easeName);
       const segments = n - 1;
       const segT = tGlobal * segments;
@@ -50,8 +64,9 @@ window.Anim = (function () {
     },
   };
 
-  /* ---------- Multi-stroke tweening ---------- */
+  // Multi-stroke tweening
 
+  // Centroid for set of points
   function centroidOf(points) {
     if (!points.length) return { x: 0, y: 0 };
     let sx = 0, sy = 0;
@@ -59,6 +74,7 @@ window.Anim = (function () {
     return { x: sx / points.length, y: sy / points.length };
   }
 
+  // Polyline length
   function lengthOf(points) {
     let L = 0;
     for (let i = 1; i < points.length; i++)
@@ -66,6 +82,7 @@ window.Anim = (function () {
     return L;
   }
 
+  // Matching functions
   function strokeMatchCost(a, b) {
     const ca = centroidOf(a.points), cb = centroidOf(b.points);
     const d = dist(ca.x, ca.y, cb.x, cb.y);
@@ -96,6 +113,7 @@ window.Anim = (function () {
     return { pairs, unmatchedA, unmatchedB };
   }
 
+  // Ghosting
   function ghostFromStrokeLike(s) {
     const c = centroidOf(s.points);
     const N = 20;
@@ -103,6 +121,7 @@ window.Anim = (function () {
     return { colHSB: { ...s.colHSB }, thickness: 0.001, opacity: 0, eraser: false, points: pts };
   }
 
+  // Resample a polyline into N points by arc length
   function resamplePointsLocal(points, N) {
     if (!Array.isArray(points) || points.length < 2) return points ? points.slice() : [];
     N = Math.max(2, Math.floor(N));

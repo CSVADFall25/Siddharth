@@ -1,5 +1,5 @@
 /* app.js (base)
-   - UI, tools, drawing, save PNG
+   - UI, tools, drawing
    - Uses Anim from animation.js 
    - Uses Stroke from stroke.js 
    - Uses Erase from erase.js 
@@ -8,6 +8,19 @@
    - Uses ai.js for AI swatches
    - Uses ai_art.js for AI art generation
    - Uses Symmetry from symmetry.js
+   - Consulted ChatGPT5 for 
+      - Help with the math-heavy portions (e.g. Hit Tests & Sliders and Rendering)
+      - Help with integrating the AI portions into the base application
+      - Help with debugging errors that came up while integrating button functionalities
+      - Help with JavaScript/HTML syntax for interaction and clipping 
+    - Primarily consulted the following:
+      - https://p5js.org/reference/ (For p5.js)
+      - Past projects and portfolios I've made for help with the UI syntax
+      - Various websites on Google for small issues
+    - This file is the main p5.js sketch that builds the drawing UI 
+        (tools, sliders, color wheel, symmetry, vertex/move/erase modes), 
+        manages strokes and hit-testing, and builds storing/animating frames 
+        and AI integrations for palettes and art.
 */
 
 let strokes = [];

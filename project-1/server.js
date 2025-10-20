@@ -1,4 +1,8 @@
-// server.js — REST version using Gemini 2.5 Flash
+/* server.js — REST version using Gemini 2.5 Flash
+- Consulted ChatGPT5 for
+    - 
+- Primarily consulted the following websites
+*/
 import express from "express";
 import cors from "cors";
 import bodyParser from "body-parser";
