@@ -1,0 +1,3 @@
+[submodule "mini-assignments/mini-assignment5/BrowserMeetsEmbedded"]
+	path = mini-assignments/mini-assignment5/BrowserMeetsEmbedded
+	url = https://github.com/joeljaffesd/BrowserMeetsEmbedded.git
