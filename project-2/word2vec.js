@@ -1,8 +1,18 @@
-/*
-  word2vec.js
-  3D word plot with search and a neighbor list. Uses existing globals and renders on a dark canvas.
-  Inspired by https://projector.tensorflow.org/.
+/* word2vec.js
+   3D Word2Vec view for the Instagram DM data portrait.
+
+   - Lays out the left panel for the embedding space.
+   - Projects 3D word vectors into 2D and draws them as points.
+   - Lets the user drag to rotate, scroll to zoom, and click/search to select a word.
+   - Shows a neighbor list for the selected word using Euclidean or cosine distance.
+   - Inspired by https://projector.tensorflow.org/.
+
+   I consulted the p5.js documentation.
+   I consulted past examples of my Word2Vec and computational linguistics class projects.
+   I consulted Copilot for assistance with the 3D projection math, the k-NN neighbor search, and the interaction logic.
+   I also consulted Copilot for help with debugging the label and dot placement and hitbox tracking.
 */
+
 
 // Layout
 function layoutWord2VecBounds() {

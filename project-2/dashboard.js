@@ -1,6 +1,13 @@
-/*
-  dashboard.js
-  Draws and updates the dashboard panel showing stats, n-grams, and emojis.
+/* dashboard.js
+   Right-hand dashboard for the Instagram DM data portrait.
+
+   - Lays out the dashboard panel next to the Word2Vec view.
+   - Shows summary stats (messages, sentiment, people, characters).
+   - Lists top unigrams, bigrams, trigrams, and emojis for the current view.
+   - Adds left/right arrows to step through the selected time bin.
+
+   I consulted the p5.js documentation.
+   I consulted Copilot for assistance with the integration of the n-gram listing logic, the summary stats computation into the dashboard, and figuring out how to debug the placement of the text on the dashboard.
 */
 
 // Sets dashboard position and dimensions

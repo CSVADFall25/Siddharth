@@ -1,5 +1,13 @@
 /* bar.js
-   Bottom chart with X-axis labels only, hover tooltips, and selection outlines.
+   Bottom time chart for the Instagram DM data portrait.
+
+   - Draws the X-axis-only bar chart for day / month / year / hour.
+   - Tracks bar hitboxes for hover, tooltips, and selection.
+   - Computes labels, keys, and counts from the messages table.
+
+   I consulted the p5.js documentation.
+   I consulted Copilot for assistance with the interaction logic and for help with debugging the bar drawing code and time-based filtering.
+   I used mini-assignment4 and the class examples as a reference as well.
 */
 
 function drawChartXOnly() {

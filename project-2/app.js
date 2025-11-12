@@ -1,5 +1,13 @@
 /* app.js
-   Black-background UI: title, handle, right dashboard, left 3D word map + neighbors, and bottom chart.
+     Main sketch file for the Instagram DM data portrait.
+
+   - Sets up the p5 canvas, fonts, and global state.
+   - Draws the title, handle link, mode tabs, Word2Vec panel, dashboard, and bar chart.
+   - Handles mouse + keyboard input and switches between day/month/year/hour views.
+   
+   I consulted the p5.js documentation.
+   I consulted Copilot for assistance with the interaction logic and the integrations between components from other files.
+   I used mini-assignment4 and the class examples as a reference as well.
 */
 
 let instagramLogo;
