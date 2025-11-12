@@ -49,11 +49,13 @@ function drawDashboard() {
   const topTriples = getTopFromTable(tables.threeWord, ["trigram","token","term","gram"], dateKeyFilter, maxItems, minimumCount, hourFilter);
   const topEmoji   = getTopFromTable(tables.emoji, ["emoji","emojis","token","char"], dateKeyFilter, maxItems, 1, hourFilter);
 
-  drawStatsCard(innerX, innerY, innerW, 64, summaryStats);
-  drawDashboardArrows(innerX, innerY - 20, innerW, 64);
+  // increased card height to accommodate an extra metric row
+  const cardH = 92;
+  drawStatsCard(innerX, innerY, innerW, cardH, summaryStats);
+  drawDashboardArrows(innerX, innerY - 20, innerW, cardH);
 
-  const bodyY = innerY + 64 + 12;
-  const bodyH = innerH - 64 - 12;
+  const bodyY = innerY + cardH + 12;
+  const bodyH = innerH - cardH - 12;
   const rowH = (bodyH - columnGap) / 2;
 
   // helper to draw each n-gram list
@@ -127,6 +129,8 @@ function computeStats(dateKeyOrNull, hourOrNull) {
   let messageCount = 0;
   let sentimentSum = 0;
   let sentimentN = 0;
+  const recipientSet = new Set();
+  let charSum = 0;
 
   for (let r = 0; r < msgTable.getRowCount(); r++) {
     const dtRaw = msgTable.getString(r, "datetime");
@@ -155,6 +159,20 @@ function computeStats(dateKeyOrNull, hourOrNull) {
     if (!include) continue;
     messageCount += 1;
 
+    // Track unique recipients in scope
+    const recipRaw = msgTable.getString(r, "recipient_name");
+    if (recipRaw != null) {
+      const recip = String(recipRaw).trim();
+      if (recip.length > 0) recipientSet.add(recip);
+    }
+
+    // Sum character counts (precomputed in CSV as character_count)
+    const ccStr = msgTable.getString(r, "character_count");
+    if (ccStr != null && ccStr !== "") {
+      const cc = parseInt(ccStr);
+      if (!isNaN(cc)) charSum += cc;
+    }
+
     const sStr = msgTable.getString(r, "compound_sentiment");
     if (sStr) {
       const v = parseFloat(sStr);
@@ -173,7 +191,7 @@ function computeStats(dateKeyOrNull, hourOrNull) {
     else label = "Neutral";
   }
 
-  return { msgCount: messageCount, avgSentimentBucket: label, avgSentiment: average };
+  return { msgCount: messageCount, avgSentimentBucket: label, avgSentiment: average, uniqueRecipientsCount: recipientSet.size, charCount: charSum };
 }
 
 // Draws the small summary card at the top of the dashboard
@@ -213,6 +231,20 @@ function drawStatsCard(x, y, w, h, stats) {
   const avgSuffix = stats.avgSentiment != null ? ` (${nf(stats.avgSentiment, 1, 2)})` : "";
   text(stats.avgSentimentBucket + avgSuffix, x + w - pad, lineY);
   textAlign(LEFT, TOP);
+
+  // Second row: unique recipients on the left
+  const lineY2 = lineY + 22;
+  fill(220);
+  text("Unique People Messaged", x + pad, lineY2);
+  textAlign(RIGHT, TOP);
+  text(nf(stats.uniqueRecipientsCount || 0, 1, 0), midX - 12, lineY2);
+  textAlign(LEFT, TOP);
+
+  // Second row (right): characters written
+  text("Characters Written", midX + 12, lineY2);
+  textAlign(RIGHT, TOP);
+  text(nf(stats.charCount || 0, 1, 0), x + w - pad, lineY2);
+  textAlign(LEFT, TOP);
 }
 
 // Draws navigation arrows on the dashboard card
@@ -220,7 +252,8 @@ function drawDashboardArrows(cardX, cardY, cardW, cardH) {
   const buttonSize = 28;
   const pad = 8;
   const gap = 8;
-  const y = cardY + (cardH - buttonSize) / 2;
+  // move arrows up slightly
+  const y = cardY + (cardH - buttonSize) / 2 - 12.5;
 
   const rightX = cardX + cardW - pad - buttonSize;
   const leftX = rightX - gap - buttonSize;
