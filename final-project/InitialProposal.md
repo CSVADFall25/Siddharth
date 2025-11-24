@@ -1,3 +1,5 @@
+# p5.chart: Interactive Data Visualization and Manipulation Library for p5.js (Proposal)
+
 I plan to build `p5.chart`, an interactive data visualization and manipulation add-on library for p5.js. The library will include three main components:
 
 - DataFrames for data analysis: Filtering, grouping, vectorized operations, Boolean indexing, statistical methods, etc.
