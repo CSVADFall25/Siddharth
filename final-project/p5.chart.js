@@ -1,1472 +1,2126 @@
 // p5.chart.js
-// Basic data + chart utilities for p5.js
-// Assumes p5 is already loaded.
+// Modern Data Visualization Library for p5.js
 
-// ---------------------------------------------------------
-// Namespace
-// ---------------------------------------------------------
 
-p5.prototype.chart = p5.prototype.chart || {};
+// Helper: Get luminance of a hex color
+function getLuminance(hex) {
+  hex = String(hex).replace('#', '');
+  if (hex.length === 3) {
+    hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  }
+  if (hex.length !== 6) return 1; // fallback: treat as light
+  const r = parseInt(hex.substring(0,2), 16) / 255;
+  const g = parseInt(hex.substring(2,4), 16) / 255;
+  const b = parseInt(hex.substring(4,6), 16) / 255;
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
 
-// ---------------------------------------------------------
-// DataFrame
-// ---------------------------------------------------------
+// Helper: Choose label color based on background
+function getAutoLabelColor(bgColor) {
+  let hex = bgColor;
+  if (typeof hex === 'string' && hex.startsWith('rgb')) {
+    const nums = hex.match(/\d+/g);
+    if (nums && nums.length >= 3) {
+      hex = '#' + nums.slice(0,3).map(x => (+x).toString(16).padStart(2,'0')).join('');
+    }
+  }
+  const lum = getLuminance(hex);
+  return lum > 0.6 ? '#111' : '#fff';
+}
 
-p5.prototype.chart.DataFrame = class DataFrame {
-  constructor(data, columns) {
-    if (data === undefined) {
+(function() {
+
+  // ==========================================
+  // 0. GLOBALS & CONFIG
+  // ==========================================
+  
+  p5.prototype.chart = p5.prototype.chart || {};
+  
+  // Palette
+  p5.prototype.chart.palette = [
+    "#395B64", "#A5C9CA", "#E7F6F2", "#2C3333", 
+    "#FF8B8B", "#EB4747", "#ABC9FF", "#FFD966"
+  ];
+  
+  // Typography Defaults
+  const DEFAULT_FONT = '"Roboto", "Helvetica Neue", "Helvetica", "Arial", sans-serif';
+  const TEXT_COLOR = "#333333";
+  const SUBTEXT_COLOR = "#666666";
+  
+  p5.prototype.chart.inputs = {}; // Cache for DOM elements
+
+  // ==========================================
+  // 1. DATAFRAME & LOADING 
+  // ==========================================
+
+  p5.prototype.chart.DataFrame = class DataFrame {
+    constructor(data, columns) {
       this._rows = [];
       this._columns = [];
-      return;
-    }
+      if (!data) return;
 
-    // Inline _normalize
-    let rows = [];
-    let cols = [];
-
-    if (!Array.isArray(data) || data.length === 0) {
-      this._rows = [];
-      this._columns = [];
-      return;
-    }
-
-    const first = data[0];
-
-    if (first && typeof first === 'object' && !Array.isArray(first)) {
-      rows = data.map((d) => ({ ...d }));
-      cols = Object.keys(first);
-    } else if (Array.isArray(first)) {
-      if (!Array.isArray(columns) || columns.length === 0) {
-        throw new Error('DataFrame: columns array is required when using array-of-arrays data.');
-      }
-      cols = columns.slice();
-      rows = data.map((rowArr) => {
-        const obj = {};
-        for (let i = 0; i < cols.length; i++) obj[cols[i]] = rowArr[i];
-        return obj;
-      });
-    } else {
-      throw new Error('DataFrame: unsupported data format.');
-    }
-
-    this._rows = rows;
-    this._columns = cols;
-  }
-
-  _setFromParsedCSV(columns, dataRows) {
-    this._columns = columns.slice();
-    this._rows = dataRows.map((r) => ({ ...r }));
-  }
-
-  nRows() { return this._rows.length; }
-  nCols() { return this._columns.length; }
-  columns() { return this._columns.slice(); }
-
-  row(i) {
-    if (i < 0 || i >= this._rows.length) return null;
-    return { ...this._rows[i] };
-  }
-
-  column(name) {
-    if (this._columns.indexOf(name) === -1) {
-      throw new Error(`DataFrame.column: unknown column "${name}".`);
-    }
-    const out = [];
-    for (let i = 0; i < this._rows.length; i++) out.push(this._rows[i][name]);
-    return out;
-  }
-
-  take(indices) {
-    if (!Array.isArray(indices)) {
-      throw new Error('DataFrame.take: indices must be an array.');
-    }
-    const newRows = indices
-      .map((idx) => this._rows[idx])
-      .filter((r) => r !== undefined)
-      .map((r) => ({ ...r }));
-    return new p5.prototype.chart.DataFrame(newRows);
-  }
-
-  head(n = 5) {
-    const k = Math.max(0, Math.min(n, this._rows.length));
-    const idx = [];
-    for (let i = 0; i < k; i++) idx.push(i);
-    return this.take(idx);
-  }
-
-  select(cols) {
-    if (!Array.isArray(cols) || cols.length === 0) {
-      throw new Error('DataFrame.select: cols must be a non-empty array.');
-    }
-    const cleanCols = [];
-    const seen = {};
-    for (let i = 0; i < cols.length; i++) {
-      const c = cols[i];
-      if (this._columns.indexOf(c) === -1) {
-        throw new Error(`DataFrame.select: unknown column "${c}".`);
-      }
-      if (!seen[c]) {
-        seen[c] = true;
-        cleanCols.push(c);
-      }
-    }
-    const newRows = this._rows.map((r) => {
-      const obj = {};
-      for (let i = 0; i < cleanCols.length; i++) obj[cleanCols[i]] = r[cleanCols[i]];
-      return obj;
-    });
-    return new p5.prototype.chart.DataFrame(newRows);
-  }
-
-  drop(cols) {
-    if (!Array.isArray(cols) || cols.length === 0) {
-      throw new Error('DataFrame.drop: cols must be a non-empty array.');
-    }
-    const dropSet = {};
-    for (let i = 0; i < cols.length; i++) dropSet[cols[i]] = true;
-    const keepCols = this._columns.filter((c) => !dropSet[c]);
-    const newRows = this._rows.map((r) => {
-      const obj = {};
-      for (let i = 0; i < keepCols.length; i++) obj[keepCols[i]] = r[keepCols[i]];
-      return obj;
-    });
-    return new p5.prototype.chart.DataFrame(newRows);
-  }
-
-  rename(map) {
-    const newRows = this._rows.map((r) => {
-      const obj = {};
-      for (let i = 0; i < this._columns.length; i++) {
-        const oldName = this._columns[i];
-        const newName = map.hasOwnProperty(oldName) ? map[oldName] : oldName;
-        obj[newName] = r[oldName];
-      }
-      return obj;
-    });
-    return new p5.prototype.chart.DataFrame(newRows);
-  }
-
-  withColumn(name, valuesOrFn) {
-    const newRows = [];
-    if (typeof valuesOrFn === 'function') {
-      for (let i = 0; i < this._rows.length; i++) {
-        const oldRow = this._rows[i];
-        const value = valuesOrFn(oldRow, i);
-        const newRow = { ...oldRow, [name]: value };
-        newRows.push(newRow);
-      }
-    } else if (Array.isArray(valuesOrFn)) {
-      if (valuesOrFn.length !== this._rows.length) {
-        throw new Error('DataFrame.withColumn: value array length must match nRows.');
-      }
-      for (let i = 0; i < this._rows.length; i++) {
-        const oldRow = this._rows[i];
-        const newRow = { ...oldRow, [name]: valuesOrFn[i] };
-        newRows.push(newRow);
-      }
-    } else {
-      throw new Error('DataFrame.withColumn: second argument must be function or array.');
-    }
-    return new p5.prototype.chart.DataFrame(newRows);
-  }
-
-  filterRows(fn) {
-    if (typeof fn !== 'function') {
-      throw new Error('DataFrame.filterRows: fn must be a function (row, index) => boolean.');
-    }
-    const newRows = [];
-    for (let i = 0; i < this._rows.length; i++) {
-      const r = this._rows[i];
-      if (fn(r, i)) newRows.push({ ...r });
-    }
-    return new p5.prototype.chart.DataFrame(newRows);
-  }
-
-  where(columnName, op, value) {
-    const ops = {
-      '==': (a, b) => a === b,
-      '!=': (a, b) => a !== b,
-      '<': (a, b) => a < b,
-      '<=': (a, b) => a <= b,
-      '>': (a, b) => a > b,
-      '>=': (a, b) => a >= b
-    };
-    const fn = ops[op];
-    if (!fn) {
-      throw new Error(`DataFrame.where: unsupported operator "${op}".`);
-    }
-    return this.filterRows((row) => fn(row[columnName], value));
-  }
-
-  sortBy(columnName, options) {
-    if (this._columns.indexOf(columnName) === -1) {
-      throw new Error(`DataFrame.sortBy: unknown column "${columnName}".`);
-    }
-    const opts = options || {};
-    const descending = !!opts.descending;
-    const rowsCopy = this._rows.map((r) => ({ ...r }));
-
-    rowsCopy.sort((a, b) => {
-      const av = a[columnName];
-      const bv = b[columnName];
-      if (av === bv) return 0;
-      if (av === undefined || av === null) return 1;
-      if (bv === undefined || bv === null) return -1;
-      if (typeof av === 'number' && typeof bv === 'number') {
-        return descending ? bv - av : av - bv;
-      }
-      const as = String(av);
-      const bs = String(bv);
-      if (as < bs) return descending ? 1 : -1;
-      if (as > bs) return descending ? -1 : 1;
-      return 0;
-    });
-
-    return new p5.prototype.chart.DataFrame(rowsCopy);
-  }
-
-  sample(n, options) {
-    const opts = options || {};
-    const withReplacement = !!opts.withReplacement;
-
-    const N = this._rows.length;
-    if (N === 0 || n <= 0) {
-      return new p5.prototype.chart.DataFrame([]);
-    }
-
-    const newRows = [];
-    if (withReplacement) {
-      for (let i = 0; i < n; i++) {
-        const idx = Math.floor(Math.random() * N);
-        newRows.push({ ...this._rows[idx] });
-      }
-    } else {
-      const indices = [];
-      for (let i = 0; i < N; i++) indices.push(i);
-      for (let i = 0; i < Math.min(n, N); i++) {
-        const j = i + Math.floor(Math.random() * (N - i));
-        const tmp = indices[i];
-        indices[i] = indices[j];
-        indices[j] = tmp;
-      }
-      for (let k = 0; k < Math.min(n, N); k++) {
-        newRows.push({ ...this._rows[indices[k]] });
-      }
-    }
-
-    return new p5.prototype.chart.DataFrame(newRows);
-  }
-
-  groupBy(groupCols, options) {
-    const cols = Array.isArray(groupCols) ? groupCols.slice() : [groupCols];
-    if (cols.length === 0) {
-      throw new Error('DataFrame.groupBy: groupCols must be a non-empty string or array.');
-    }
-    const opts = options || {};
-    const op = opts.op || 'count';
-    const valueCol = opts.column || null;
-
-    if (op !== 'count' && !valueCol) {
-      throw new Error('DataFrame.groupBy: options.column is required for op != "count".');
-    }
-    if (valueCol && this._columns.indexOf(valueCol) === -1) {
-      throw new Error(`DataFrame.groupBy: unknown value column "${valueCol}".`);
-    }
-
-    const groups = new Map();
-
-    for (let i = 0; i < this._rows.length; i++) {
-      const row = this._rows[i];
-      const keyVals = [];
-      for (let j = 0; j < cols.length; j++) keyVals.push(row[cols[j]]);
-      const key = JSON.stringify(keyVals);
-      let entry = groups.get(key);
-      if (!entry) {
-        entry = { keyVals: keyVals, count: 0, sum: 0, min: null, max: null };
-        groups.set(key, entry);
-      }
-
-      entry.count += 1;
-
-      if (op !== 'count') {
-        const rawVal = row[valueCol];
-        const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(rawVal);
-        if (!isNaN(numVal)) {
-          entry.sum += numVal;
-          if (entry.min === null || numVal < entry.min) entry.min = numVal;
-          if (entry.max === null || numVal > entry.max) entry.max = numVal;
+      if (Array.isArray(data) && data.length > 0) {
+        if (Array.isArray(data[0])) {
+          if (!columns) throw new Error("DataFrame: Columns required for array data.");
+          this._columns = columns;
+          this._rows = data.map(row => {
+            let obj = {};
+            columns.forEach((col, i) => obj[col] = row[i]);
+            return obj;
+          });
+        } else {
+          this._rows = data.map(d => ({ ...d }));
+          this._columns = Object.keys(data[0]);
         }
       }
     }
-
-    const outRows = [];
-    const aggName =
-      op === 'count'
-        ? 'count'
-        : op + '_' + (valueCol || 'value');
-
-    groups.forEach((entry) => {
-      const obj = {};
-      for (let j = 0; j < cols.length; j++) obj[cols[j]] = entry.keyVals[j];
-      if (op === 'count') obj[aggName] = entry.count;
-      else if (op === 'sum') obj[aggName] = entry.sum;
-      else if (op === 'mean') obj[aggName] = entry.count === 0 ? null : entry.sum / entry.count;
-      else if (op === 'min') obj[aggName] = entry.min;
-      else if (op === 'max') obj[aggName] = entry.max;
-      else throw new Error(`DataFrame.groupBy: unsupported op "${op}".`);
-      outRows.push(obj);
-    });
-
-    return new p5.prototype.chart.DataFrame(outRows);
-  }
-
-  pivot(indexCol, columnsCol, valuesCol, options) {
-    if (this._columns.indexOf(indexCol) === -1) {
-      throw new Error(`DataFrame.pivot: unknown index column "${indexCol}".`);
-    }
-    if (this._columns.indexOf(columnsCol) === -1) {
-      throw new Error(`DataFrame.pivot: unknown columns column "${columnsCol}".`);
-    }
-    if (valuesCol && this._columns.indexOf(valuesCol) === -1) {
-      throw new Error(`DataFrame.pivot: unknown values column "${valuesCol}".`);
-    }
-
-    const opts = options || {};
-    const op = opts.op || 'sum';
-
-    const indexKeys = [];
-    const indexSeen = {};
-    const colKeys = [];
-    const colSeen = {};
-
-    for (let i = 0; i < this._rows.length; i++) {
-      const row = this._rows[i];
-      const iv = row[indexCol];
-      const cv = row[columnsCol];
-
-      if (!indexSeen[iv]) {
-        indexSeen[iv] = true;
-        indexKeys.push(iv);
-      }
-      if (!colSeen[cv]) {
-        colSeen[cv] = true;
-        colKeys.push(cv);
-      }
-    }
-
-    const acc = {};
-    for (let i = 0; i < this._rows.length; i++) {
-      const row = this._rows[i];
-      const iv = row[indexCol];
-      const cv = row[columnsCol];
-
-      if (!acc[iv]) acc[iv] = {};
-      if (!acc[iv][cv]) acc[iv][cv] = { sum: 0, count: 0 };
-
-      if (op === 'count') {
-        acc[iv][cv].count += 1;
-      } else {
-        const rawVal = valuesCol ? row[valuesCol] : 1;
-        const numVal = typeof rawVal === 'number' ? rawVal : parseFloat(rawVal);
-        if (!isNaN(numVal)) {
-          acc[iv][cv].sum += numVal;
-          acc[iv][cv].count += 1;
+    get columns() { return [...this._columns]; }
+    get rows() { return this._rows.map(r => ({ ...r })); }
+    col(name) { return this._rows.map(r => r[name]); }
+    filter(colNameOrFn, operator, value) {
+        // If only one argument and it's a function, use the old way
+        if (typeof colNameOrFn === 'function') {
+            return new p5.prototype.chart.DataFrame(this._rows.filter(colNameOrFn), this._columns);
         }
-      }
+        // Otherwise, use simplified syntax: filter('Age', '>', 5)
+        const filtered = this._rows.filter(row => {
+            const colVal = row[colNameOrFn];
+            if (operator === '>') return colVal > value;
+            if (operator === '<') return colVal < value;
+            if (operator === '>=') return colVal >= value;
+            if (operator === '<=') return colVal <= value;
+            if (operator === '===' || operator === '==') return colVal === value;
+            if (operator === '!==' || operator === '!=') return colVal !== value;
+            return true;
+        });
+        return new p5.prototype.chart.DataFrame(filtered, this._columns);
     }
-
-    const rowsOut = [];
-    for (let i = 0; i < indexKeys.length; i++) {
-      const iv = indexKeys[i];
-      const obj = {};
-      obj[indexCol] = iv;
-
-      for (let j = 0; j < colKeys.length; j++) {
-        const cv = colKeys[j];
-        const cell = acc[iv] && acc[iv][cv];
-        let val = null;
-
-        if (!cell) val = null;
-        else if (op === 'count') val = cell.count;
-        else if (op === 'sum') val = cell.sum;
-        else if (op === 'mean') val = cell.count === 0 ? null : cell.sum / cell.count;
-        else throw new Error(`DataFrame.pivot: unsupported op "${op}".`);
-
-        const colName = String(cv);
-        obj[colName] = val;
-      }
-
-      rowsOut.push(obj);
+    groupBy(col) {
+        let groups = {};
+        this._rows.forEach(r => {
+            let key = r[col];
+            if(!groups[key]) groups[key] = [];
+            groups[key].push(r);
+        });
+        return groups;
     }
+    // Transform a column by applying a function to each value
+    transform(colName, fn) {
+        this._rows.forEach(row => {
+            if (row[colName] !== undefined) {
+                row[colName] = fn(row[colName]);
+            }
+        });
+        return this;
+    }
+    // Rename a column
+    rename(oldName, newName) {
+        const idx = this._columns.indexOf(oldName);
+        if (idx === -1) throw new Error(`Column "${oldName}" not found`);
+        this._columns[idx] = newName;
+        this._rows.forEach(row => {
+            row[newName] = row[oldName];
+            delete row[oldName];
+        });
+        return this;
+    }
+    // Select specific columns
+    select(columnNames) {
+        if (!Array.isArray(columnNames)) columnNames = [columnNames];
+        const newRows = this._rows.map(row => {
+            let newRow = {};
+            columnNames.forEach(col => {
+                if (row[col] !== undefined) newRow[col] = row[col];
+            });
+            return newRow;
+        });
+        return new p5.prototype.chart.DataFrame(newRows, columnNames);
+    }
+    // Drop columns
+    drop(columnNames) {
+        if (!Array.isArray(columnNames)) columnNames = [columnNames];
+        const keepCols = this._columns.filter(col => !columnNames.includes(col));
+        return this.select(keepCols);
+    }
+    // Group by column and apply aggregation function
+    group(colName, aggFunc) {
+        const groups = this.groupBy(colName);
+        const result = [];
+        for (let key in groups) {
+            const groupData = groups[key];
+            const aggregated = aggFunc(groupData);
+            result.push({ [colName]: key, ...aggregated });
+        }
+        return new p5.prototype.chart.DataFrame(result);
+    }
+    // Pivot table: create a cross-tabulation
+    pivot(indexCol, columnCol, valueCol, aggFunc = 'sum') {
+        const pivotData = {};
+        const columnValues = new Set();
+        
+        this._rows.forEach(row => {
+            const indexVal = row[indexCol];
+            const colVal = row[columnCol];
+            const val = row[valueCol];
+            
+            if (!pivotData[indexVal]) pivotData[indexVal] = {};
+            if (!pivotData[indexVal][colVal]) pivotData[indexVal][colVal] = [];
+            
+            pivotData[indexVal][colVal].push(val);
+            columnValues.add(colVal);
+        });
+        
+        const result = [];
+        const sortedCols = Array.from(columnValues).sort();
+        
+        for (let indexVal in pivotData) {
+            let row = { [indexCol]: indexVal };
+            sortedCols.forEach(colVal => {
+                const values = pivotData[indexVal][colVal] || [];
+                if (aggFunc === 'sum') {
+                    row[colVal] = values.reduce((a, b) => a + b, 0);
+                } else if (aggFunc === 'mean' || aggFunc === 'avg') {
+                    row[colVal] = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+                } else if (aggFunc === 'count') {
+                    row[colVal] = values.length;
+                } else if (aggFunc === 'min') {
+                    row[colVal] = values.length > 0 ? Math.min(...values) : 0;
+                } else if (aggFunc === 'max') {
+                    row[colVal] = values.length > 0 ? Math.max(...values) : 0;
+                }
+            });
+            result.push(row);
+        }
+        
+        return new p5.prototype.chart.DataFrame(result);
+    }
+    // Sort by column in ascending or descending order
+    sort(colName, order = 'ascending') {
+        const sortedRows = [...this._rows].sort((a, b) => {
+            const valA = a[colName];
+            const valB = b[colName];
+            
+            // Handle numbers
+            if (typeof valA === 'number' && typeof valB === 'number') {
+                return order === 'ascending' ? valA - valB : valB - valA;
+            }
+            
+            // Handle strings
+            const strA = String(valA).toLowerCase();
+            const strB = String(valB).toLowerCase();
+            if (order === 'ascending') {
+                return strA < strB ? -1 : strA > strB ? 1 : 0;
+            } else {
+                return strA > strB ? -1 : strA < strB ? 1 : 0;
+            }
+        });
+        
+        return new p5.prototype.chart.DataFrame(sortedRows, this._columns);
+    }
+  };
 
-    return new p5.prototype.chart.DataFrame(rowsOut);
-  }
+  p5.prototype.createDataFrame = function(data, cols) { 
+    return new this.chart.DataFrame(data, cols); 
+  };
 
-  toArray() {
-    return this._rows.map((r) => ({ ...r }));
-  }
-};
-
-// ---------------------------------------------------------
-// DataFrame helpers on p5
-// ---------------------------------------------------------
-
-p5.prototype.createDataFrame = function (data, columns) {
-  return new this.chart.DataFrame(data, columns);
-};
-
-p5.prototype.loadDataFrame = function (filename, options) {
-  const p = this;
-  const df = new p.chart.DataFrame();
-
-  const opts = Object.assign(
-    { header: true, delimiter: null },
-    options
-  );
-
-  fetch(filename)
-    .then(function (res) { return res.text(); })
-    .then(function (text) {
-      const lines = text
-        .split(/\r?\n/)
-        .filter(function (ln) { return ln.trim().length > 0; });
-
-      if (lines.length === 0) {
-        if (typeof p._decrementPreload === 'function') p._decrementPreload();
-        return;
+  // Ultra-simple loadDataFrame - just wraps loadTable and auto-converts
+  p5.prototype.loadDataFrame = function(path, callback) {
+    const p = this;
+    
+    // Use loadTable and return it - p5 handles preload
+    const table = p.loadTable(path, 'csv', 'header', function() {
+      if (typeof callback === 'function') {
+        const df = p.tableToDataFrame(table);
+        callback(df);
       }
-
-      const headerLine = lines[0];
-
-      // Inline _detectDelimiter
-      let delim = opts.delimiter;
-      if (!delim) {
-        if (headerLine.indexOf(',') !== -1) delim = ',';
-        else if (headerLine.indexOf('\t') !== -1) delim = '\t';
-        else if (headerLine.indexOf(';') !== -1) delim = ';';
-        else delim = ',';
-      }
-
-      function splitLine(ln) {
-        return ln.split(delim).map(function (s) { return s.trim(); });
-      }
-
-      let columns;
-      let startIdx = 0;
-
-      if (opts.header) {
-        columns = splitLine(lines[0]);
-        startIdx = 1;
-      } else {
-        const firstRow = splitLine(lines[0]);
-        columns = firstRow.map(function (_ , i) { return 'col' + i; });
-      }
-
-      const dataRows = [];
-      for (let i = startIdx; i < lines.length; i++) {
-        const vals = splitLine(lines[i]);
-        const obj = {};
-        for (let j = 0; j < columns.length; j++) {
-          // Inline _parseValue
-          const raw = vals[j];
-          const s = String(raw).trim();
-          let v;
-          if (s === '') {
-            v = s;
-          } else {
-            const num = Number(s);
-            v = isNaN(num) ? s : num;
+    });
+    
+    // Return a proxy that converts to DataFrame on access
+    return new Proxy(table, {
+      get(target, prop) {
+        if (prop === '_rows' || prop === '_columns' || typeof prop === 'string') {
+          // Once loaded, convert and use DataFrame
+          if (target.getRowCount() > 0) {
+            const df = p.tableToDataFrame(target);
+            return df[prop];
           }
-          obj[columns[j]] = v;
         }
-        dataRows.push(obj);
+        return target[prop];
+      }
+    });
+  };
+  
+  // Helper to convert p5.Table to DataFrame, or load CSV directly
+  p5.prototype.tableToDataFrame = function(pathOrTable, type, options) {
+    const p = this;
+    
+    // If first argument is a string (path), load the CSV first
+    if (typeof pathOrTable === 'string') {
+      const df = new this.chart.DataFrame([]);
+      
+      p.loadTable(pathOrTable, type || 'csv', options || 'header', function(table) {
+        const loadedDf = p.tableToDataFrame(table);
+        df._rows = loadedDf._rows;
+        df._columns = loadedDf._columns;
+      });
+      
+      return df;
+    }
+    
+    // Otherwise, convert existing p5.Table to DataFrame
+    const table = pathOrTable;
+    const columns = table.columns;
+    const data = [];
+    
+    for (let i = 0; i < table.getRowCount(); i++) {
+      let row = table.getRow(i);
+      let obj = {};
+      columns.forEach(col => {
+        let val = row.get(col);
+        // Auto-convert numbers
+        if (val !== null && val !== '' && !isNaN(Number(val))) {
+          val = Number(val);
+        }
+        obj[col] = val;
+      });
+      data.push(obj);
+    }
+    
+    return new this.chart.DataFrame(data, columns);
+  };
+  
+  // Register as a preload method
+  p5.prototype.registerPreloadMethod('loadDataFrame', p5.prototype);
+
+  // ==========================================
+  // 2. UTILS
+  // ==========================================
+
+  function getColor(p, i, customPalette) {
+    const pal = customPalette && Array.isArray(customPalette) && customPalette.length > 0
+        ? customPalette
+        : p.chart.palette || ["#395B64", "#A5C9CA", "#E7F6F2", "#2C3333", "#FF8B8B", "#EB4747", "#ABC9FF", "#FFD966"];
+
+    if (p.debug || (customPalette && customPalette.debug)) {
+        console.log("Using palette:", pal);
+        console.log("Returning color at index", i, ":", pal[i % pal.length]);
+    }
+
+    return pal[i % pal.length];
+  }
+
+  function drawMeta(p, opts, w, h) {
+      p.push();
+      p.noStroke();
+      p.textFont(opts.font || DEFAULT_FONT);
+      p.drawingContext.font = 'bold 16px Roboto, sans-serif';
+      
+      const align = opts.textAlign || p.LEFT;
+      let xPos = 0;
+      if (align === p.CENTER) xPos = w/2;
+      if (align === p.RIGHT) xPos = w;
+      
+      if (opts.title) {
+          p.fill(TEXT_COLOR); 
+          p.textSize(opts.titleSize || 16); 
+          p.textStyle(p.BOLD);
+          p.drawingContext.fontWeight = 'bold';
+          p.textAlign(align, p.BOTTOM); 
+          p.text(opts.title, xPos, -30);
+      }
+      if (opts.subtitle) {
+          p.drawingContext.font = (opts.subtitleBold ? 'bold' : 'normal') + ' 13px Roboto, sans-serif';
+          p.fill(SUBTEXT_COLOR); p.textSize(opts.subtitleSize || 13); 
+          p.textStyle(opts.subtitleBold ? p.BOLD : p.NORMAL);
+          p.textAlign(align, p.BOTTOM); p.text(opts.subtitle, xPos, -12);
+      }
+      if (opts.source || opts.author) {
+          p.fill(SUBTEXT_COLOR); p.textSize(7); // Smaller font size for source/author
+          p.textAlign(p.LEFT, p.TOP);
+          let footerText = "";
+          if (opts.source) footerText += `Source: ${opts.source}`;
+          if (opts.author) {
+              if (opts.source) footerText += "  |  "; // Add spacing between source and author
+              footerText += `Chart: ${opts.author}`;
+          }
+          const footerY = opts.xLabel || opts.yLabel ? h + 50 : h + 30; // Move up if no axis labels
+          p.text(footerText, 0, footerY);
+      }
+      
+        // X-axis label
+        if (opts.xLabel) {
+          p.drawingContext.font = 'normal 12px Roboto, sans-serif';
+          p.fill(TEXT_COLOR); p.textSize(12); p.textStyle(p.NORMAL);
+          p.textAlign(p.CENTER, p.BOTTOM);
+          p.text(opts.xLabel, w/2, h + 40);
+        }
+      
+        // Y-axis label
+        if (opts.yLabel) {
+          p.drawingContext.font = 'normal 12px Roboto, sans-serif';
+          p.fill(TEXT_COLOR); p.textSize(12); p.textStyle(p.NORMAL);
+          p.push();
+          p.translate(-30, h/2);
+          p.rotate(-p.HALF_PI);
+          p.textAlign(p.CENTER, p.BOTTOM);
+          p.text(opts.yLabel, 0, 0);
+          p.pop();
+        }
+      
+      p.pop();
+  }
+
+  // Global hover state for ALL charts in this sketch
+  p5.prototype.chart.hoverState = { active: false, x: 0, y: 0, content: [] };
+
+  // Helper for rect hover in *global* coordinates
+  function rectHover(p, gx, gy, w, h, content) {
+    if (p.mouseX >= gx && p.mouseX <= gx + w && p.mouseY >= gy && p.mouseY <= gy + h) {
+      p.chart.hoverState = { active: true, x: p.mouseX, y: p.mouseY, content: content };
+      p.cursor(p.HAND);
+      return true;
+    }
+    return false;
+  }
+
+  function drawTooltip(p) {
+    const h = p.chart.hoverState;
+    if (!h.active || !h.content || h.content.length === 0) {
+      p.cursor(p.ARROW);
+      // reset for next frame
+      p.chart.hoverState.active = false;
+      return;
+    }
+    p.push();
+    p.noStroke();
+    p.fill(0, 0, 0, 220);
+    p.rectMode(p.CORNER);
+    p.textSize(12);
+    p.textFont(DEFAULT_FONT);
+    
+    let maxWidth = 0;
+    h.content.forEach(l => { 
+      let w = p.textWidth(l); 
+      if (w > maxWidth) maxWidth = w; 
+    });
+    let boxW = maxWidth + 20; 
+    let boxH = h.content.length * 18 + 10;
+    
+    let tx = h.x + 15; 
+    let ty = h.y + 15;
+    if (tx + boxW > p.width) tx = h.x - boxW - 10;
+    if (ty + boxH > p.height) ty = h.y - boxH - 10;
+    
+    p.translate(tx, ty); 
+    p.rect(0, 0, boxW, boxH, 4);
+    p.fill(255); 
+    p.textAlign(p.LEFT, p.TOP);
+    h.content.forEach((l, i) => p.text(l, 10, 8 + i * 18));
+    p.pop();
+
+    // reset so next frame recomputes
+    p.chart.hoverState.active = false;
+  }
+
+  // Draw tooltip *after* all user drawing each frame
+  p5.prototype._drawChartTooltip = function() {
+    drawTooltip(this);
+  };
+  p5.prototype.registerMethod('post', p5.prototype._drawChartTooltip);
+
+  function truncate(p, str, w) {
+    str = String(str);
+    if (p.textWidth(str) <= w) return str;
+    let len = str.length;
+    while (p.textWidth(str + "...") > w && len > 0) {
+      str = str.substring(0, len - 1); len--;
+    }
+    return str + "...";
+  }
+  
+  p5.prototype._cleanupChart = function() {
+      for (let id in p5.prototype.chart.inputs) {
+          if (p5.prototype.chart.inputs[id]) p5.prototype.chart.inputs[id].remove();
+      }
+      p5.prototype.chart.inputs = {};
+  };
+  p5.prototype.registerMethod('remove', p5.prototype._cleanupChart);
+
+  // ==========================================
+  // 3. BAR CHART
+  // ==========================================
+  
+  p5.prototype.bar = function(data, options = {}) {
+    const p = this;
+    let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+    
+    const orient = options.orientation || 'horizontal';
+    const stacked = options.mode === 'stacked';
+    const labelCol = options.x || options.category || df.columns[0];
+    let valCols = options.y || options.values || [df.columns[1]];
+    if (!Array.isArray(valCols)) valCols = [valCols];
+    
+    const labelPos = options.labelPos || 'auto';
+    const labels = df.col(labelCol);
+    const rows = df.rows;
+
+    // Calculate label space dynamically for horizontal bars
+    let labelSpace = options.labelSpace;
+    if (!labelSpace && orient === 'horizontal') {
+      p.textSize(12);
+      p.textFont(options.font || DEFAULT_FONT);
+      let maxLabelWidth = 0;
+      labels.forEach(lbl => {
+        let lblWidth = p.textWidth(String(lbl));
+        if (lblWidth > maxLabelWidth) maxLabelWidth = lblWidth;
+      });
+      labelSpace = maxLabelWidth + 20; // 20px padding
+    } else if (!labelSpace) {
+      labelSpace = 70; // Default for vertical
+    }
+    
+    if (options.xLabel === undefined) options.xLabel = labelCol;
+    if (options.yLabel === undefined) options.yLabel = Array.isArray(valCols) ? valCols.join(', ') : valCols;
+    if (options.title === undefined) options.title = df.columns.join(' vs. ');
+    const leftMargin = options.yLabel ? 50 : 0;
+    const margin = options.margin || { top: 60, right: 40, bottom: 60, left: leftMargin };
+    const w = (options.width || p.width) - margin.left - margin.right;
+    const h = (options.height || p.height) - margin.top - margin.bottom;
+
+    p.push();
+    p.translate(margin.left, margin.top);
+    drawMeta(p, options, w, h);
+
+    let maxVal = 0;
+    rows.forEach(row => {
+      let sum = stacked 
+        ? valCols.reduce((acc, c) => acc + (Number(row[c])||0), 0)
+        : Math.max(...valCols.map(c => Number(row[c])||0));
+      if (sum > maxVal) maxVal = sum;
+    });
+    if (maxVal === 0) maxVal = 1;
+
+    if (options.background !== undefined) {
+      p.noStroke();
+      p.fill(options.background);
+      p.rect(0, 0, w, h);
+    }
+
+    if (orient === 'horizontal') {
+        const rowH = h / labels.length;
+        const barH = stacked ? (rowH * 0.8) : (rowH * 0.8 / valCols.length);
+        
+        // Reserve space for labels on the left
+        const barStartX = labelSpace;
+        const barWidth = w - labelSpace;
+        
+        // Y-axis
+        p.stroke(150); p.strokeWeight(1.5); p.line(barStartX, 0, barStartX, h);
+        // X-axis with ticks
+        p.stroke(150); p.strokeWeight(1.5); p.line(barStartX, h, w, h);
+        p.stroke(200); p.strokeWeight(1);
+        for(let i = 0; i <= 5; i++) {
+          let xVal = barStartX + (barWidth / 5) * i;
+          p.line(xVal, h, xVal, h + 5);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.CENTER, p.TOP);
+          p.text(Math.round((maxVal / 5) * i), xVal, h + 8);
+          p.stroke(200);
+        }
+        
+        labels.forEach((lbl, i) => {
+            let yBase = i * rowH + (rowH * 0.1);
+            let xStack = 0;
+            valCols.forEach((col, j) => {
+                let val = Number(rows[i][col]) || 0;
+                let rectW = p.map(val, 0, maxVal, 0, barWidth);
+                let rectX = barStartX + (stacked ? xStack : 0);
+                if (stacked) xStack += rectW;
+                let by = stacked ? yBase : yBase + (j * barH);
+                
+                // If 1 col, use 'i', if multiple, use 'j'
+                let colorIndex = valCols.length > 1 ? j : i;
+                let c = getColor(p, colorIndex, options.palette);
+                
+                let colColor = p.color(c);
+                p.noStroke();
+                p.fill(colColor);
+
+                const gx = margin.left + rectX;
+                const gy = margin.top + by;
+
+                if (rectHover(p, gx, gy, rectW, barH, [`${lbl}`, `${col}: ${val}`])) {
+                  let hoverColor = p.color(c);
+                  hoverColor.setAlpha(200);
+                  p.fill(hoverColor);
+                }
+                p.rect(rectX, by, rectW, barH);
+
+                if (labelPos !== 'none') {
+                  p.textSize(10); p.textAlign(p.LEFT, p.CENTER);
+                  let txt = String(val);
+                  let tw = p.textWidth(txt);
+                  // Use label color protection for all label positions
+                  if (labelPos === 'inside') {
+                    p.fill(getAutoLabelColor(c));
+                    p.text(txt, rectX + rectW - tw - 5, by + barH/2);
+                  } else if (labelPos === 'outside') {
+                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.text(txt, rectX + rectW + 5, by + barH/2);
+                  } else if (labelPos === 'bottom') {
+                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.text(txt, rectX + 5, by + barH/2);
+                  } else if (labelPos === 'auto') {
+                    if (rectW > tw + 10) {
+                      p.fill(getAutoLabelColor(c));
+                      p.text(txt, rectX + rectW - tw - 5, by + barH/2);
+                    } else {
+                      p.fill(getAutoLabelColor(options.background || 255));
+                      p.text(txt, rectX + rectW + 5, by + barH/2);
+                    }
+                  }
+                }
+            });
+            p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(12);
+            p.text(truncate(p, lbl, labelSpace - 10), barStartX - 10, i * rowH + rowH/2);
+        });
+    } else {
+        const colW = w / labels.length;
+        const barW = stacked ? (colW * 0.8) : (colW * 0.8 / valCols.length);
+        
+        // X-axis
+        p.stroke(150); p.strokeWeight(1.5); p.line(0, h, w, h);
+        // Y-axis with ticks
+        p.stroke(150); p.strokeWeight(1.5); p.line(0, 0, 0, h);
+        p.stroke(200); p.strokeWeight(1);
+        for(let i = 0; i <= 5; i++) {
+          let yVal = h - (h / 5) * i;
+          p.line(-5, yVal, 0, yVal);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.RIGHT, p.CENTER);
+          p.text(Math.round((maxVal / 5) * i), -8, yVal);
+          p.stroke(200);
+        }
+        labels.forEach((lbl, i) => {
+            let xBase = i * colW + (colW * 0.1);
+            let yStack = h;
+            valCols.forEach((col, j) => {
+                let val = Number(rows[i][col]) || 0;
+                let rectH = p.map(val, 0, maxVal, 0, h);
+                let rectY = stacked ? (yStack - rectH) : (h - rectH);
+                if (stacked) yStack -= rectH;
+                let bx = stacked ? xBase : xBase + (j * barW);
+                
+                // If 1 col, use 'i', if multiple, use 'j'
+                let colorIndex = valCols.length > 1 ? j : i;
+                let c = getColor(p, colorIndex, options.palette);
+
+                let colColor = p.color(c);
+                p.noStroke();
+                p.fill(colColor);
+
+                const gx = margin.left + bx;
+                const gy = margin.top + rectY;
+
+                if (rectHover(p, gx, gy, barW, rectH, [`${lbl}`, `${col}: ${val}`])) {
+                  let hoverColor = p.color(c);
+                  hoverColor.setAlpha(200);
+                  p.fill(hoverColor);
+                }
+
+                p.rect(bx, rectY, barW, rectH);
+
+                if (labelPos !== 'none') {
+                  p.textSize(10); p.textAlign(p.CENTER, p.BOTTOM);
+                  let txt = String(val);
+                  // Use label color protection for all label positions
+                  if (labelPos === 'inside') {
+                    p.fill(getAutoLabelColor(c));
+                    p.text(txt, bx + barW/2, rectY + rectH - 5);
+                  } else if (labelPos === 'outside') {
+                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.text(txt, bx + barW/2, rectY - 2);
+                  } else if (labelPos === 'bottom') {
+                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.text(txt, bx + barW/2, rectY + rectH + 2);
+                  } else if (labelPos === 'auto') {
+                    if (rectH > 20) {
+                      p.fill(getAutoLabelColor(c));
+                      p.text(txt, bx + barW/2, rectY + rectH - 5);
+                    } else {
+                      p.fill(getAutoLabelColor(options.background || 255));
+                      p.text(txt, bx + barW/2, rectY - 2);
+                    }
+                  }
+                }
+            });
+            let centerX = i * colW + colW/2;
+            p.stroke(200); p.strokeWeight(1);
+            p.line(centerX, h, centerX, h + 5);
+            p.noStroke();
+            p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(12);
+            p.text(truncate(p, lbl, colW), centerX, h + 10);
+        });
+    }
+    p.pop();
+  };
+
+  // ==========================================
+  // 4. PIE CHART 
+  // ==========================================
+  
+  p5.prototype.pie = function(data, options = {}) {
+    const p = this;
+    let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+    
+    const valCol = options.value || df.columns[1];
+    const lblCol = options.label || df.columns[0];
+    
+    // Data Processing
+    const values = df.col(valCol).map(Number);
+    const labels = df.col(lblCol);
+    const total = values.reduce((a,b) => a+b, 0);
+    
+    // Layout & Config
+    options.textAlign = options.textAlign || p.LEFT;
+    
+    const margin = options.margin || { top: 60, right: 40, bottom: 40, left: 60 };
+    const w = (options.width || p.width) - margin.left - margin.right;
+    const h = (options.height || p.height) - margin.top - margin.bottom;
+    const cx = w/2; 
+    const cy = h/2;
+    const r = options.radius || Math.min(w, h)/2.5;
+    
+    // Style check
+    const isDonut = options.style === 'donut';
+    
+    p.push();
+    p.translate(margin.left, margin.top);
+    
+    // Auto title if not provided
+    if (options.title === undefined) {
+      options.title = `${lblCol} vs. ${valCol}`;
+    }
+    // Draw Metadata (Title, Subtitle, etc.), left-aligned
+    let pieMetaOpts = Object.assign({}, options, { textAlign: p.LEFT });
+    drawMeta(p, pieMetaOpts, w, h);
+    
+    // Shift the pie center down if outside labels are used to clear title space.
+    let verticalShift = (options.labelPos === 'outside') ? 20 : 0; 
+    p.translate(cx, cy + verticalShift);
+    
+    let startA = -p.HALF_PI;
+    
+    values.forEach((v, i) => {
+      let ang = (v/total)*p.TWO_PI;
+      let endA = startA + ang;
+      let c = getColor(p, i, options.palette);
+
+      // Hover Detection (coordinates adjusted for the pie's new center)
+      let mx = p.mouseX - (margin.left + cx);
+      let my = p.mouseY - (margin.top + cy + verticalShift);
+      let d = p.dist(0, 0, mx, my);
+      let mouseAng = p.atan2(my, mx);
+        
+      const norm = (a) => {
+        a = a % p.TWO_PI;
+        if (a < 0) a += p.TWO_PI;
+        return a;
+      };
+      let am = norm(mouseAng);
+      let a0 = norm(startA);
+      let a1 = norm(endA);
+      
+      // Donut/Pie Hover Check
+      let holeRadius = options.holeRadius || 0.6;
+      let inRing = isDonut ? (d < r && d > r * holeRadius) : (d < r);
+      
+      let inAngle = (a0 <= a1) ? (am >= a0 && am <= a1) : (am >= a0 || am <= a1);
+      let isHover = inRing && inAngle;
+
+      // Draw Slice
+      let colColor = p.color(c);
+      p.stroke(255); 
+      p.strokeWeight(options.lineSize || 2);
+
+      if (isHover) {
+        p.cursor(p.HAND);
+        p.push();
+        p.scale(1.05); 
+        colColor.setAlpha(230);
+        p.fill(colColor);
+        p.arc(0, 0, r*2, r*2, startA, endA, p.PIE);
+        p.pop();
+        
+        let pct = Math.round((v/total)*100);
+        p.chart.hoverState = { 
+            active: true, 
+            x: p.mouseX, 
+            y: p.mouseY, 
+            content: [`${labels[i]}`, `${v} (${pct}%)`] 
+        };
+      } else {
+        p.fill(colColor);
+        p.arc(0, 0, r*2, r*2, startA, endA, p.PIE);
       }
 
-      df._setFromParsedCSV(columns, dataRows);
+      // Donut Hole Drawing
+      if (isDonut) {
+        let hole = options.holeRadius || 0.6;
+        p.fill(options.background || 255);
+        p.noStroke();
+        p.ellipse(0, 0, r*2*hole, r*2*hole);
+      }
 
-      if (typeof p._decrementPreload === 'function') p._decrementPreload();
+      // --- Draw Labels & Connectors ---
+      if (options.labelPos !== 'none') {
+          let mid = startA + ang/2;
+          // Label anchor radius: further out if outside, centered in ring if donut
+          let tr = (options.labelPos === 'outside') 
+                   ? r + 30 
+                   : r * (isDonut ? (1 + (options.holeRadius || 0.6)) / 2 : 0.65); // Center of ring or 65% radius
+                   
+          let tx = Math.cos(mid) * tr;
+          let ty = Math.sin(mid) * tr;
+          
+          let pct = Math.round((v/total)*100);
+          let labelText = String(labels[i]);
+
+          // Label Content Logic
+          switch (options.labelContent) {
+              case 'value': labelText = String(v); break;
+              case 'percent': labelText = `${pct}%`; break;
+              case 'name_value': labelText = `${labels[i]} (${v})`; break;
+              case 'name_percent': labelText = `${labels[i]} (${pct}%)`; break;
+              case 'all': case 'name_value_percent': labelText = `${labels[i]} (${v} | ${pct}%)`; break;
+              default: break;
+          }
+
+          // --- 1. Draw Connector Line ---
+          if (options.showConnectors && options.labelPos === 'outside') {
+              const r_diag = r + 10;
+              
+              let x1 = Math.cos(mid) * r;
+              let y1 = Math.sin(mid) * r;
+              
+              let x2 = Math.cos(mid) * r_diag;
+              let y2 = Math.sin(mid) * r_diag;
+              
+              p.push();
+              p.stroke(TEXT_COLOR); 
+              p.strokeWeight(1);
+              p.noFill();
+              p.beginShape();
+              p.vertex(x1, y1); // 1. Start on pie edge
+              p.vertex(x2, y2); // 2. Elbow point
+              p.vertex(tx, y2); // 3. Horizontal line to text anchor X (at elbow's Y level)
+              p.endShape();
+              p.pop();
+          }
+          // --- End Connector Line ---
+
+
+          // 2. Positioning & Alignment Fix
+          p.noStroke(); 
+          p.textSize(options.labelSize || 11);
+          
+          if (options.labelPos === 'outside') {
+              // Alignment fix: Anchor away from pie center
+              let align = (tx > 0) ? p.LEFT : p.RIGHT;
+              let buffer = (tx > 0) ? 5 : -5;
+              
+              p.textAlign(align, p.CENTER);
+              p.fill(TEXT_COLOR);
+              tx += buffer;
+          } else {
+              p.textAlign(p.CENTER, p.CENTER); 
+              // Contrast check for inside labels
+              let sliceColor = p.color(c);
+              let brightness = (p.red(sliceColor) * 299 + p.green(sliceColor) * 587 + p.blue(sliceColor) * 114) / 1000;
+              p.fill((brightness > 150) ? TEXT_COLOR : 255);
+          }
+          
+          // 3. Truncation and Visibility
+          let maxLabelW = (options.labelPos === 'outside') ? 100 : Math.abs(tr * ang * 0.9);
+
+          if (options.labelPos !== 'outside' && p.textWidth(labelText) > maxLabelW) {
+             while (labelText.length > 2 && p.textWidth(labelText + '…') > maxLabelW) {
+                 labelText = labelText.slice(0, -1);
+             }
+             labelText += '…';
+          }
+
+          // Hide label if slice is too small to fit text (only applicable to inside labels)
+          if (options.labelPos === 'outside' || ang > 0.15) {
+             p.text(labelText, tx, ty);
+          }
+      }
+        
+      startA = endA;
     });
 
-  return df;
-};
-
-p5.prototype.registerPreloadMethod('loadDataFrame', p5.prototype);
-
-// ---------------------------------------------------------
-// Chart class shell
-// ---------------------------------------------------------
-
-p5.prototype.chart.Chart = class Chart {
-  constructor(p, x, y, w, h, options) {
-    this.p = p;
-    this.x = x;
-    this.y = y;
-    this.w = w;
-    this.h = h;
-
-    const defaults = {
-      background: 255,
-      axisColor: 0,
-      barColor: 100
-    };
-
-    this.options = Object.assign({}, defaults, options);
-  }
-};
-
-// ---------------------------------------------------------
-// BAR CHART
-// ---------------------------------------------------------
-
-p5.prototype.barChart = function () {
-  const p = this;
-
-  // Inline _resolveRect
-  const args = arguments;
-  let x, y, w, h, data, opts;
-  if (typeof args[0] === 'number') {
-    x = args[0];
-    y = args[1];
-    w = args[2];
-    h = args[3];
-    data = args[4];
-    opts = args[5] || {};
-  } else {
-    data = args[0];
-    opts = args[1] || {};
-    const margin = opts.margin != null ? opts.margin : 40;
-    x = margin;
-    y = margin;
-    w = p.width - margin * 2;
-    h = p.height - margin * 2;
-  }
-
-  opts = opts || {};
-
-  let values = [];
-  let labels = null;
-
-  if (data instanceof p.chart.DataFrame) {
-    const xCol = opts.x || opts.category || null;
-    const yCol = opts.y || opts.value || null;
-    if (!yCol) {
-      throw new Error('barChart: when using a DataFrame, provide options.y (value column).');
-    }
-    values = data.column(yCol).map(Number);
-    if (xCol) {
-      labels = data.column(xCol);
-      if (!opts.xLabel) opts.xLabel = xCol;
-    } else if (!opts.xLabel) {
-      opts.xLabel = 'Index';
-    }
-    if (!opts.yLabel) opts.yLabel = yCol;
-    if (!opts.title && xCol && yCol) opts.title = yCol + ' by ' + xCol;
-    else if (!opts.title) opts.title = 'Bar Chart';
-  } else if (Array.isArray(data)) {
-    values = data.map(Number);
-    labels = opts.labels || null;
-    if (!opts.xLabel) opts.xLabel = labels ? 'Category' : 'Index';
-    if (!opts.yLabel) opts.yLabel = 'Value';
-    if (!opts.title) opts.title = 'Bar Chart';
-  } else {
-    throw new Error('barChart: data must be an array or a DataFrame.');
-  }
-
-  // Drawing (inline _drawBarChart + y-axis + title/labels)
-  const pad = opts.padding != null ? opts.padding : 24;
-  const innerX = x + pad;
-  const innerY = y + pad;
-  const innerW = w - 2 * pad;
-  const innerH = h - 2 * pad;
-
-  let minVal = Math.min.apply(null, values);
-  let maxVal = Math.max.apply(null, values);
-
-  p.push();
-  p.noStroke();
-  p.fill(opts.background || 255);
-  p.rect(x, y, w, h);
-  p.pop();
-
-  // Inline _niceTicks + _drawYAxis
-  if (minVal === maxVal) {
-    if (minVal === 0) {
-      minVal = -1;
-      maxVal = 1;
-    } else {
-      minVal = minVal - Math.abs(minVal) * 0.1;
-      maxVal = maxVal + Math.abs(maxVal) * 0.1;
-    }
-  }
-  let spanY = maxVal - minVal;
-  const tickCount = 5;
-  const rawStep = spanY / (tickCount - 1);
-  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
-  const norm = rawStep / mag;
-  let step;
-  if (norm < 1.5) step = 1 * mag;
-  else if (norm < 3) step = 2 * mag;
-  else if (norm < 7) step = 5 * mag;
-  else step = 10 * mag;
-
-  const niceMin = Math.floor(minVal / step) * step;
-  const niceMax = Math.ceil(maxVal / step) * step;
-  const ticks = [];
-  for (let v = niceMin; v <= niceMax + 1e-9; v += step) {
-    ticks.push(v);
-  }
-  minVal = niceMin;
-  maxVal = niceMax;
-
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY, innerX, innerY + innerH);
-
-  p.textAlign(p.RIGHT, p.CENTER);
-  p.textSize(opts.tickSize || 10);
-
-  for (let i = 0; i < ticks.length; i++) {
-    const t = ticks[i];
-    const tNorm = (t - minVal) / (maxVal - minVal || 1);
-    const ty = innerY + innerH - tNorm * innerH;
-    p.line(innerX - 4, ty, innerX, ty);
-    p.noStroke();
-    p.text(t, innerX - 6, ty);
-    p.stroke(opts.axisColor || 0);
-  }
-
-  // X axis
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY + innerH, innerX + innerW, innerY + innerH);
-
-  const n = values.length;
-  const barW = innerW / n;
-  const gap = Math.min(barW * 0.2, 8);
-  const bw = barW - gap;
-  const offset = gap / 2;
-
-  p.noStroke();
-  p.fill(opts.barColor || 100);
-
-  for (let i = 0; i < n; i++) {
-    const v = values[i];
-    const t = (v - minVal) / (maxVal - minVal || 1);
-    const barH = t * innerH;
-    const bx = innerX + i * barW + offset;
-    const by = innerY + innerH - barH;
-    p.rect(bx, by, bw, barH);
-  }
-
-  if (labels && labels.length === n) {
-    p.textAlign(p.CENTER, p.TOP);
-    p.textSize(opts.tickSize || 10);
-    for (let i = 0; i < n; i++) {
-      const cx = innerX + i * barW + barW / 2;
-      const ty = innerY + innerH + 4;
-      p.noStroke();
-      p.fill(0);
-      p.text(String(labels[i]), cx, ty);
-    }
-  }
-
-  // Inline _drawTitleAndLabels
-  const title = opts.title || '';
-  const xLabel = opts.xLabel || '';
-  const yLabel = opts.yLabel || '';
-
-  p.push();
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.titleSize || 14);
-  if (title) p.text(title, x + w / 2, y - 20);
-
-  p.textSize(opts.labelSize || 12);
-  if (xLabel) p.text(xLabel, x + w / 2, y + h + 28);
-
-  if (yLabel) {
-    p.push();
-    p.translate(x - 30, y + h / 2);
-    p.rotate(-p.HALF_PI);
-    p.text(yLabel, 0, 0);
     p.pop();
-  }
-  p.pop();
-};
-
-// ---------------------------------------------------------
-// LINE CHART
-// ---------------------------------------------------------
-
-p5.prototype.lineChart = function () {
-  const p = this;
-
-  const args = arguments;
-  let x, y, w, h, data, opts;
-  if (typeof args[0] === 'number') {
-    x = args[0];
-    y = args[1];
-    w = args[2];
-    h = args[3];
-    data = args[4];
-    opts = args[5] || {};
-  } else {
-    data = args[0];
-    opts = args[1] || {};
-    const margin = opts.margin != null ? opts.margin : 40;
-    x = margin;
-    y = margin;
-    w = p.width - margin * 2;
-    h = p.height - margin * 2;
-  }
-
-  opts = opts || {};
-
-  let xs = [];
-  let ys = [];
-
-  if (data instanceof p.chart.DataFrame) {
-    const xCol = opts.x || null;
-    const yCol = opts.y || null;
-    if (!xCol || !yCol) {
-      throw new Error('lineChart: when using a DataFrame, provide options.x and options.y.');
-    }
-    xs = data.column(xCol).map(Number);
-    ys = data.column(yCol).map(Number);
-    if (!opts.xLabel) opts.xLabel = xCol;
-    if (!opts.yLabel) opts.yLabel = yCol;
-    if (!opts.title) opts.title = yCol + ' vs ' + xCol;
-  } else if (Array.isArray(data)) {
-    ys = data.map(Number);
-    xs = ys.map((_, i) => i);
-    if (!opts.xLabel) opts.xLabel = 'Index';
-    if (!opts.yLabel) opts.yLabel = 'Value';
-    if (!opts.title) opts.title = 'Line Chart';
-  } else {
-    throw new Error('lineChart: data must be an array or a DataFrame.');
-  }
-
-  // Inline _drawLineChart + axes + title/labels
-  const pad = opts.padding != null ? opts.padding : 24;
-  const innerX = x + pad;
-  const innerY = y + pad;
-  const innerW = w - 2 * pad;
-  const innerH = h - 2 * pad;
-
-  let minX = Math.min.apply(null, xs);
-  let maxX = Math.max.apply(null, xs);
-  let minY = Math.min.apply(null, ys);
-  let maxY = Math.max.apply(null, ys);
-
-  p.push();
-  p.noStroke();
-  p.fill(opts.background || 255);
-  p.rect(x, y, w, h);
-  p.pop();
-
-  // Inline nice ticks + y-axis
-  if (minY === maxY) {
-    if (minY === 0) {
-      minY = -1;
-      maxY = 1;
-    } else {
-      minY = minY - Math.abs(minY) * 0.1;
-      maxY = maxY + Math.abs(maxY) * 0.1;
-    }
-  }
-  let spanY = maxY - minY;
-  const tickCount = 5;
-  const rawStep = spanY / (tickCount - 1);
-  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
-  const norm = rawStep / mag;
-  let step;
-  if (norm < 1.5) step = 1 * mag;
-  else if (norm < 3) step = 2 * mag;
-  else if (norm < 7) step = 5 * mag;
-  else step = 10 * mag;
-
-  const niceMin = Math.floor(minY / step) * step;
-  const niceMax = Math.ceil(maxY / step) * step;
-  const ticks = [];
-  for (let v = niceMin; v <= niceMax + 1e-9; v += step) {
-    ticks.push(v);
-  }
-  minY = niceMin;
-  maxY = niceMax;
-
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY, innerX, innerY + innerH);
-
-  p.textAlign(p.RIGHT, p.CENTER);
-  p.textSize(opts.tickSize || 10);
-
-  for (let i = 0; i < ticks.length; i++) {
-    const t = ticks[i];
-    const tNorm = (t - minY) / (maxY - minY || 1);
-    const ty = innerY + innerH - tNorm * innerH;
-    p.line(innerX - 4, ty, innerX, ty);
-    p.noStroke();
-    p.text(t, innerX - 6, ty);
-    p.stroke(opts.axisColor || 0);
-  }
-
-  // Fix X range if degenerate
-  if (minX === maxX) {
-    if (minX === 0) {
-      minX = -1;
-      maxX = 1;
-    } else {
-      minX = minX - Math.abs(minX) * 0.1;
-      maxX = maxX + Math.abs(maxX) * 0.1;
-    }
-  }
-
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY + innerH, innerX + innerW, innerY + innerH);
-
-  p.noFill();
-  p.stroke(opts.lineColor || 50);
-  p.strokeWeight(opts.strokeWeight || 2);
-
-  p.beginShape();
-  for (let i = 0; i < xs.length; i++) {
-    const tX = (xs[i] - minX) / (maxX - minX || 1);
-    const tY = (ys[i] - minY) / (maxY - minY || 1);
-    const px2 = innerX + tX * innerW;
-    const py2 = innerY + innerH - tY * innerH;
-    p.vertex(px2, py2);
-  }
-  p.endShape();
-
-  const title = opts.title || '';
-  const xLabel = opts.xLabel || '';
-  const yLabel = opts.yLabel || '';
-
-  p.push();
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.titleSize || 14);
-  if (title) p.text(title, x + w / 2, y - 20);
-
-  p.textSize(opts.labelSize || 12);
-  if (xLabel) p.text(xLabel, x + w / 2, y + h + 28);
-
-  if (yLabel) {
-    p.push();
-    p.translate(x - 30, y + h / 2);
-    p.rotate(-p.HALF_PI);
-    p.text(yLabel, 0, 0);
-    p.pop();
-  }
-  p.pop();
-};
-
-// ---------------------------------------------------------
-// SCATTER PLOT
-// ---------------------------------------------------------
-
-p5.prototype.scatterPlot = function () {
-  const p = this;
-
-  const args = arguments;
-  let x, y, w, h, data, opts;
-  if (typeof args[0] === 'number') {
-    x = args[0];
-    y = args[1];
-    w = args[2];
-    h = args[3];
-    data = args[4];
-    opts = args[5] || {};
-  } else {
-    data = args[0];
-    opts = args[1] || {};
-    const margin = opts.margin != null ? opts.margin : 40;
-    x = margin;
-    y = margin;
-    w = p.width - margin * 2;
-    h = p.height - margin * 2;
-  }
-
-  opts = opts || {};
-
-  let xs = [];
-  let ys = [];
-
-  if (data instanceof p.chart.DataFrame) {
-    const xCol = opts.x || null;
-    const yCol = opts.y || null;
-    if (!xCol || !yCol) {
-      throw new Error('scatterPlot: when using a DataFrame, provide options.x and options.y.');
-    }
-    xs = data.column(xCol).map(Number);
-    ys = data.column(yCol).map(Number);
-    if (!opts.xLabel) opts.xLabel = xCol;
-    if (!opts.yLabel) opts.yLabel = yCol;
-    if (!opts.title) opts.title = yCol + ' vs ' + xCol;
-  } else if (Array.isArray(data)) {
-    ys = data.map(Number);
-    xs = ys.map((_, i) => i);
-    if (!opts.xLabel) opts.xLabel = 'Index';
-    if (!opts.yLabel) opts.yLabel = 'Value';
-    if (!opts.title) opts.title = 'Scatter Plot';
-  } else {
-    throw new Error('scatterPlot: data must be an array or a DataFrame.');
-  }
-
-  const pad = opts.padding != null ? opts.padding : 24;
-  const innerX = x + pad;
-  const innerY = y + pad;
-  const innerW = w - 2 * pad;
-  const innerH = h - 2 * pad;
-
-  let minX = Math.min.apply(null, xs);
-  let maxX = Math.max.apply(null, xs);
-  let minY = Math.min.apply(null, ys);
-  let maxY = Math.max.apply(null, ys);
-
-  p.push();
-  p.noStroke();
-  p.fill(opts.background || 255);
-  p.rect(x, y, w, h);
-  p.pop();
-
-  // Inline y-axis ticks
-  if (minY === maxY) {
-    if (minY === 0) {
-      minY = -1;
-      maxY = 1;
-    } else {
-      minY = minY - Math.abs(minY) * 0.1;
-      maxY = maxY + Math.abs(maxY) * 0.1;
-    }
-  }
-  let spanY = maxY - minY;
-  const tickCount = 5;
-  const rawStep = spanY / (tickCount - 1);
-  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
-  const norm = rawStep / mag;
-  let step;
-  if (norm < 1.5) step = 1 * mag;
-  else if (norm < 3) step = 2 * mag;
-  else if (norm < 7) step = 5 * mag;
-  else step = 10 * mag;
-
-  const niceMin = Math.floor(minY / step) * step;
-  const niceMax = Math.ceil(maxY / step) * step;
-  const ticks = [];
-  for (let v = niceMin; v <= niceMax + 1e-9; v += step) {
-    ticks.push(v);
-  }
-  minY = niceMin;
-  maxY = niceMax;
-
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY, innerX, innerY + innerH);
-
-  p.textAlign(p.RIGHT, p.CENTER);
-  p.textSize(opts.tickSize || 10);
-
-  for (let i = 0; i < ticks.length; i++) {
-    const t = ticks[i];
-    const tNorm = (t - minY) / (maxY - minY || 1);
-    const ty = innerY + innerH - tNorm * innerH;
-    p.line(innerX - 4, ty, innerX, ty);
-    p.noStroke();
-    p.text(t, innerX - 6, ty);
-    p.stroke(opts.axisColor || 0);
-  }
-
-  if (minX === maxX) {
-    if (minX === 0) {
-      minX = -1;
-      maxX = 1;
-    } else {
-      minX = minX - Math.abs(minX) * 0.1;
-      maxX = maxX + Math.abs(maxX) * 0.1;
-    }
-  }
-
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY + innerH, innerX + innerW, innerY + innerH);
-
-  p.noStroke();
-  p.fill(opts.pointColor || 0);
-  const r = opts.pointRadius || 4;
-
-  for (let i = 0; i < xs.length; i++) {
-    const tX = (xs[i] - minX) / (maxX - minX || 1);
-    const tY = (ys[i] - minY) / (maxY - minY || 1);
-    const px2 = innerX + tX * innerW;
-    const py2 = innerY + innerH - tY * innerH;
-    p.circle(px2, py2, r * 2);
-  }
-
-  const title = opts.title || '';
-  const xLabel = opts.xLabel || '';
-  const yLabel = opts.yLabel || '';
-
-  p.push();
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.titleSize || 14);
-  if (title) p.text(title, x + w / 2, y - 20);
-
-  p.textSize(opts.labelSize || 12);
-  if (xLabel) p.text(xLabel, x + w / 2, y + h + 28);
-
-  if (yLabel) {
-    p.push();
-    p.translate(x - 30, y + h / 2);
-    p.rotate(-p.HALF_PI);
-    p.text(yLabel, 0, 0);
-    p.pop();
-  }
-  p.pop();
-};
-
-// ---------------------------------------------------------
-// PIE CHART
-// ---------------------------------------------------------
-
-p5.prototype.pieChart = function () {
-  const p = this;
-
-  const args = arguments;
-  let x, y, w, h, data, opts;
-  if (typeof args[0] === 'number') {
-    x = args[0];
-    y = args[1];
-    w = args[2];
-    h = args[3];
-    data = args[4];
-    opts = args[5] || {};
-  } else {
-    data = args[0];
-    opts = args[1] || {};
-    const margin = opts.margin != null ? opts.margin : 40;
-    x = margin;
-    y = margin;
-    w = p.width - margin * 2;
-    h = p.height - margin * 2;
-  }
-
-  opts = opts || {};
-
-  let values = [];
-  let labels = null;
-
-  if (data instanceof p.chart.DataFrame) {
-    const valueCol = opts.value || opts.y || null;
-    const labelCol = opts.label || opts.category || null;
-    if (!valueCol) {
-      throw new Error('pieChart: when using a DataFrame, provide options.value (or options.y).');
-    }
-    values = data.column(valueCol).map(Number);
-    labels = labelCol ? data.column(labelCol) : null;
-    if (!opts.title && valueCol && labelCol) opts.title = valueCol + ' by ' + labelCol;
-    else if (!opts.title) opts.title = 'Pie Chart';
-  } else if (Array.isArray(data)) {
-    values = data.map(Number);
-    labels = opts.labels || null;
-    if (!opts.title) opts.title = 'Pie Chart';
-  } else {
-    throw new Error('pieChart: data must be an array or a DataFrame.');
-  }
-
-  // Inline _drawPieChart + title/labels
-  const pad = opts.padding != null ? opts.padding : 24;
-  const cx = x + w / 2;
-  const cy = y + h / 2;
-  const radius = Math.min(w, h) / 2 - pad;
-
-  const total = values.reduce((a, b) => a + b, 0) || 1;
-
-  p.push();
-  p.noStroke();
-  p.fill(opts.background || 255);
-  p.rect(x, y, w, h);
-  p.pop();
-
-  let angleStart = -p.HALF_PI;
-
-  p.textSize(opts.tickSize || 10);
-  p.textAlign(p.LEFT, p.CENTER);
-
-  for (let i = 0; i < values.length; i++) {
-    const v = values[i];
-    const angle = (v / total) * p.TWO_PI;
-    const angleEnd = angleStart + angle;
-
-    const hueVal = (i * 50) % 360;
-    p.colorMode(p.HSB, 360, 100, 100);
-    p.fill(hueVal, 70, 90);
-    p.noStroke();
-    p.arc(cx, cy, radius * 2, radius * 2, angleStart, angleEnd, p.PIE);
-
-    const midAngle = (angleStart + angleEnd) / 2;
-    const lx = cx + Math.cos(midAngle) * (radius * 0.7);
-    const ly = cy + Math.sin(midAngle) * (radius * 0.7);
-
-    p.fill(0);
-    const label = labels && labels[i] != null ? String(labels[i]) : String(v);
-    p.text(label, lx, ly);
-
-    angleStart = angleEnd;
-  }
-
-  const title = opts.title || '';
-  const xLabel = opts.xLabel || '';
-  const yLabel = opts.yLabel || '';
-
-  p.push();
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.titleSize || 14);
-  if (title) p.text(title, x + w / 2, y - 20);
-
-  p.textSize(opts.labelSize || 12);
-  if (xLabel) p.text(xLabel, x + w / 2, y + h + 28);
-
-  if (yLabel) {
-    p.push();
-    p.translate(x - 30, y + h / 2);
-    p.rotate(-p.HALF_PI);
-    p.text(yLabel, 0, 0);
-    p.pop();
-  }
-  p.pop();
-
-  p.colorMode(p.RGB, 255);
-};
-
-// ---------------------------------------------------------
-// TABLE CHART (DataFrame visualization)
-// ---------------------------------------------------------
-
-p5.prototype.tableChart = function () {
-  const p = this;
-
-  const args = arguments;
-  let x, y, w, h, data, opts;
-  if (typeof args[0] === 'number') {
-    x = args[0];
-    y = args[1];
-    w = args[2];
-    h = args[3];
-    data = args[4];
-    opts = args[5] || {};
-  } else {
-    data = args[0];
-    opts = args[1] || {};
-    const margin = opts.margin != null ? opts.margin : 40;
-    x = margin;
-    y = margin;
-    w = p.width - margin * 2;
-    h = p.height - margin * 2;
-  }
-
-  opts = opts || {};
-
-  if (!(data instanceof p.chart.DataFrame)) {
-    throw new Error('tableChart: data must be a DataFrame.');
-  }
-
-  const maxRows = opts.maxRows || 10;
-  const displayData = data.head(maxRows);
-  const columns = displayData.columns();
-  const rows = displayData.toArray();
-
-  if (!opts.title) opts.title = 'Data Table';
-
-  // Drawing
-  const pad = opts.padding != null ? opts.padding : 24;
-  const innerX = x + pad;
-  const innerY = y + pad;
-  const innerW = w - 2 * pad;
-  const innerH = h - 2 * pad;
-
-  p.push();
-  p.noStroke();
-  p.fill(opts.background || 255);
-  p.rect(x, y, w, h);
-  p.pop();
-
-  // Calculate column widths
-  const colWidth = innerW / columns.length;
-  const rowHeight = opts.rowHeight || 30;
-  const headerHeight = opts.headerHeight || 35;
-
-  // Draw title
-  p.push();
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.titleSize || 14);
-  p.fill(0);
-  if (opts.title) p.text(opts.title, x + w / 2, y + 10);
-  p.pop();
-
-  // Draw header
-  p.push();
-  p.fill(opts.headerBackground || 200);
-  p.stroke(opts.borderColor || 0);
-  p.strokeWeight(1);
-  p.rect(innerX, innerY, innerW, headerHeight);
-
-  p.fill(opts.headerTextColor || 0);
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.headerTextSize || 12);
-  p.textStyle(p.BOLD);
-
-  for (let i = 0; i < columns.length; i++) {
-    const colX = innerX + i * colWidth;
-    p.text(columns[i], colX + colWidth / 2, innerY + headerHeight / 2);
-    
-    // Draw vertical lines
-    if (i > 0) {
-      p.stroke(opts.borderColor || 0);
-      p.line(colX, innerY, colX, innerY + headerHeight);
-    }
-  }
-  p.pop();
-
-  // Draw rows
-  p.push();
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.textSize || 11);
-  p.textStyle(p.NORMAL);
-
-  for (let i = 0; i < rows.length; i++) {
-    const rowY = innerY + headerHeight + i * rowHeight;
-    
-    // Alternate row colors
-    if (i % 2 === 0) {
-      p.fill(opts.rowBackground || 245);
-    } else {
-      p.fill(opts.altRowBackground || 255);
-    }
-    p.stroke(opts.borderColor || 0);
-    p.strokeWeight(1);
-    p.rect(innerX, rowY, innerW, rowHeight);
-
-    // Draw cell values
-    p.fill(opts.textColor || 0);
-    for (let j = 0; j < columns.length; j++) {
-      const colX = innerX + j * colWidth;
-      const cellValue = rows[i][columns[j]];
-      let displayValue = cellValue != null ? String(cellValue) : '';
+  };
+  
+// ==========================================
+  // 5. LINE PLOT
+  // ==========================================
+  
+  p5.prototype.linePlot = function(data, options = {}) {
+      const p = this;
+      let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+      const xCol = options.x || df.columns[0];
+      const yCols = Array.isArray(options.y) ? options.y : [options.y || df.columns[1]];
       
-      // Truncate long values
-      const maxLen = opts.maxCellLength || 20;
-      if (displayValue.length > maxLen) {
-        displayValue = displayValue.substring(0, maxLen - 3) + '...';
+      const margin = options.margin || { top: 50, right: 40, bottom: 60, left: 80 };
+      const w = (options.width || p.width) - margin.left - margin.right;
+      const h = (options.height || p.height) - margin.top - margin.bottom;
+      
+      const ptSz = options.pointSize || 6;
+      const lnSz = options.lineSize || 2;
+      const isHollow = options.pointStyle === 'hollow';
+      const bgColor = options.background || 255;
+      
+      // OPTION: showValues
+      // true    = Always visible (static)
+      // "click" = Visible on click
+      // false   = Hidden
+      const showVals = options.showValues !== undefined ? options.showValues : false; 
+      const lblPos = options.labelPos || 'auto';
+
+      let allV = [];
+      yCols.forEach(c => allV.push(...df.col(c).map(v => Number(v)||0)));
+      if (allV.length === 0) return;
+      const minV = Math.min(0, ...allV), maxV = Math.max(0, ...allV);
+      
+      if (options.xLabel === undefined) options.xLabel = xCol;
+      if (options.yLabel === undefined) options.yLabel = yCols.join(', ');
+        if (options.title === undefined) options.title = yCols.join(' vs. ');
+
+      const xs = df.col(xCol);
+      const rows = df.rows;
+      
+      p.push();
+      p.translate(margin.left, margin.top);
+      drawMeta(p, options, w, h);
+      
+      // Axes
+      p.stroke(150); p.strokeWeight(2);
+      p.line(0, h, w, h); // X
+      p.line(0, 0, 0, h); // Y
+      
+      p.stroke(200); p.strokeWeight(1);
+          function formatTick(val) {
+            let num = Number(val);
+            if (isNaN(num)) return String(val);
+            if (num === 0) return '0';
+            let absVal = Math.abs(num);
+            if (Number.isInteger(num)) return num.toFixed(0);
+            let decimals = 0;
+            while (absVal < 1 && absVal !== 0 && decimals < 10) {
+              absVal *= 10;
+              decimals++;
+            }
+            return num.toFixed(decimals);
+          }
+      // Y-Ticks
+        for(let i = 0; i <= 5; i++) {
+          let yVal = h - (h / 5) * i;
+          let labelVal = minV + ((maxV - minV) / 5) * i;
+          p.line(-5, yVal, 0, yVal);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.RIGHT, p.CENTER);
+          p.text(formatTick(labelVal), -8, yVal);
+          p.stroke(200);
+        }
+      // X-Ticks
+      const tickInterval = Math.max(1, Math.floor(xs.length / 8));
+        for(let i = 0; i < xs.length; i += tickInterval) {
+          let xVal = p.map(i, 0, xs.length-1, 0, w);
+          p.stroke(200); p.line(xVal, h, xVal, h + 5);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.CENTER, p.TOP);
+          p.text(formatTick(xs[i]), xVal, h + 8);
+        }
+
+      // Draw Lines
+      yCols.forEach((col, i) => {
+          let c = getColor(p, i, options.palette);
+          p.stroke(c); p.strokeWeight(lnSz); p.noFill();
+          p.beginShape();
+          xs.forEach((xVal, j) => {
+              let val = rows[j][col];
+              if (val === null || val === "") { p.endShape(); p.beginShape(); return; }
+              let px = p.map(j, 0, xs.length-1, 0, w);
+              let py = p.map(Number(val), minV, maxV, h, 0);
+              p.vertex(px, py);
+          });
+          p.endShape();
+      });
+
+      // Draw Points & Labels
+      if (options.dots !== false) {
+          yCols.forEach((col, i) => {
+              let c = getColor(p, i, options.palette);
+              
+              xs.forEach((xVal, j) => {
+                  let val = Number(rows[j][col]);
+                  if (isNaN(val)) return;
+                  
+                  let px = p.map(j, 0, xs.length-1, 0, w);
+                  let py = p.map(val, minV, maxV, h, 0);
+                  
+                  let d = p.dist(p.mouseX-margin.left, p.mouseY-margin.top, px, py);
+                  let isHover = d < (ptSz + 4);
+                  let isClicked = isHover && p.mouseIsPressed;
+
+                  // 1. Draw Dot
+                  p.strokeWeight(isHollow ? 2 : 0);
+                  if (isHollow) { p.stroke(c); p.fill(bgColor); } 
+                  else { p.noStroke(); p.fill(c); }
+
+                  if (isHover) {
+                      p.cursor(p.HAND);
+                      if(isHollow) p.strokeWeight(3);
+                      else { let hc = p.color(c); hc.setAlpha(200); p.fill(hc); p.circle(px, py, ptSz * 1.5); }
+                      
+                      // Only show tooltip if NOT showing static labels
+                      if (showVals !== true) {
+                           p.chart.hoverState = { active: true, x: p.mouseX, y: p.mouseY, content: [`${col}`, `${val}`] };
+                      }
+                  } 
+                  if (!isHover || isHollow) p.circle(px, py, ptSz);
+
+                  // 2. Draw Label (Static or Interaction)
+                  let drawThisLabel = false;
+                  
+                  // A. Static Mode: Always show
+                  if (showVals === true) drawThisLabel = true;
+                  
+                  // B. Click Mode: Show only on click
+                  else if (showVals === 'click' && isClicked) drawThisLabel = true;
+
+                    if (drawThisLabel) {
+                      p.noStroke();
+                      // Use label color protection: auto choose black/white for contrast with point color
+                      let labelBg = c;
+                      p.fill(getAutoLabelColor(labelBg));
+                      p.textSize(11);
+                      p.textAlign(p.CENTER, p.CENTER);
+
+                      let txt = String(val);
+                      let offset = ptSz/2 + 10;
+                      let ly = py - offset; // Default: Top
+
+                      if (lblPos === 'bottom') {
+                        ly = py + offset;
+                      } else if (lblPos === 'auto') {
+                        // Prevent going off top edge
+                        if (py < 25) ly = py + offset; 
+                        // Alternate for multiple lines to reduce overlap
+                        else if (yCols.length > 1 && i % 2 !== 0) ly = py + offset;
+                      }
+
+                      p.text(txt, px, ly);
+                    }
+              });
+          });
+      }
+      p.pop();
+  };
+
+// ==========================================
+  // 6. SCATTER PLOT 
+  // ==========================================
+
+  p5.prototype.scatter = function(data, options = {}) {
+      const p = this;
+      let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+      const xCol = options.x || df.columns[0];
+      const yCol = options.y || df.columns[1];
+      
+      const margin = options.margin || { top: 50, right: 40, bottom: 60, left: 80 };
+      const w = (options.width || p.width) - margin.left - margin.right;
+      const h = (options.height || p.height) - margin.top - margin.bottom;
+
+      // --- Data Extraction ---
+      const rows = df.rows;
+      const xs = df.col(xCol).map(Number);
+      const ys = df.col(yCol).map(Number);
+      if (xs.length === 0 || ys.length === 0) return;
+
+      // Variable Size Logic
+      let sizes = [];
+      const sizeCol = options.size; // Column name for size
+      let minS = 0, maxS = 0;
+      if (sizeCol && rows[0][sizeCol] !== undefined) {
+          sizes = df.col(sizeCol).map(Number);
+          minS = Math.min(...sizes);
+          maxS = Math.max(...sizes);
+      }
+      const minPtSz = options.minSize || 5;
+      const maxPtSz = options.maxSize || 20;
+      const fixedPtSz = options.pointSize || 8;
+
+      // Variable Color Logic
+      let colors = [];
+      const colorCol = options.color; // Column name for color
+      let colorDomain = []; // For categorical mapping
+      let minC = 0, maxC = 0; // For numerical mapping
+      let isColorNumeric = false;
+      
+      if (colorCol && rows[0][colorCol] !== undefined) {
+          // Check type of first non-null value
+          let sample = rows.find(r => r[colorCol] !== null && r[colorCol] !== "")[colorCol];
+          isColorNumeric = !isNaN(Number(sample));
+          
+          if (isColorNumeric) {
+             let vals = df.col(colorCol).map(Number);
+             minC = Math.min(...vals);
+             maxC = Math.max(...vals);
+          } else {
+             // Unique categories
+             colorDomain = [...new Set(df.col(colorCol))];
+          }
+      }
+
+      // Bounds
+      const minX = (options.minX !== undefined) ? options.minX : Math.min(...xs);
+      const maxX = (options.maxX !== undefined) ? options.maxX : Math.max(...xs);
+      const minY = (options.minY !== undefined) ? options.minY : Math.min(...ys);
+      const maxY = (options.maxY !== undefined) ? options.maxY : Math.max(...ys);
+
+      // Defaults
+      if (options.xLabel === undefined) options.xLabel = xCol;
+      if (options.yLabel === undefined) options.yLabel = yCol;
+      if (options.title === undefined) options.title = `${yCol} vs. ${xCol}`;
+
+      // Config
+      const isHollow = options.pointStyle === 'hollow';
+      const bgColor = options.background || 255;
+      const showVals = options.showValues !== undefined ? options.showValues : false;
+      const lblPos = options.labelPos || 'auto';
+      const palette = options.palette || p.chart.palette;
+
+      p.push();
+      p.translate(margin.left, margin.top);
+      drawMeta(p, options, w, h);
+      
+      // --- Axes ---
+      p.stroke(150); p.strokeWeight(2);
+      p.line(0, h, w, h); // X
+      p.line(0, 0, 0, h); // Y
+      
+      // Ticks Helper
+      function formatTick(val) {
+        if (val === 0) return '0';
+        let absVal = Math.abs(val);
+        if (Number.isInteger(val)) return val.toFixed(0);
+        if (absVal > 1000) return (val/1000).toFixed(1) + 'k';
+        let decimals = 0;
+        while (absVal < 1 && absVal !== 0 && decimals < 5) { absVal *= 10; decimals++; }
+        return val.toFixed(decimals);
+      }
+
+      // X-Ticks
+      p.stroke(200); p.strokeWeight(1);
+      for(let i = 0; i <= 5; i++) {
+        let xVal = (w / 5) * i;
+        let labelVal = minX + ((maxX - minX) / 5) * i;
+        p.line(xVal, h, xVal, h + 5);
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.CENTER, p.TOP);
+        p.text(formatTick(labelVal), xVal, h + 8);
+        p.stroke(200);
       }
       
-      p.noStroke();
-      p.text(displayValue, colX + colWidth / 2, rowY + rowHeight / 2);
-      
-      // Draw vertical lines
-      if (j > 0) {
-        p.stroke(opts.borderColor || 0);
-        p.line(colX, rowY, colX, rowY + rowHeight);
+      // Y-Ticks
+      for(let i = 0; i <= 5; i++) {
+        let yVal = h - (h / 5) * i;
+        let labelVal = minY + ((maxY - minY) / 5) * i;
+        p.stroke(200); p.line(-5, yVal, 0, yVal);
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.RIGHT, p.CENTER);
+        p.text(formatTick(labelVal), -8, yVal);
+        p.stroke(200);
       }
+
+      // --- Connect Lines  ---
+      if (options.connect) {
+          let lineC = options.lineColor || palette[0];
+          p.noFill(); p.stroke(lineC); p.strokeWeight(options.lineSize || 2);
+          p.beginShape();
+          // Note: connecting assumes order in data array. 
+          // If you need sorted, sort the DataFrame before passing.
+          for(let i=0; i<xs.length; i++) {
+             let cx = p.map(xs[i], minX, maxX, 0, w);
+             let cy = p.map(ys[i], minY, maxY, h, 0);
+             p.vertex(cx, cy);
+          }
+          p.endShape();
+      }
+      
+      // --- Scatter Points ---
+      p.noStroke(); 
+      const baseColor = options.baseColor || palette[0];
+      
+      for(let i=0; i<xs.length; i++) {
+          let cx = p.map(xs[i], minX, maxX, 0, w);
+          let cy = p.map(ys[i], minY, maxY, h, 0);
+          
+          // 1. Determine Radius
+          let r = fixedPtSz;
+          if (sizeCol && sizes[i] !== undefined) {
+             let norm = (sizes[i] - minS) / (maxS - minS || 1);
+             r = p.map(norm, 0, 1, minPtSz, maxPtSz);
+          }
+
+          // 2. Determine Color
+          let ptColor = p.color(baseColor);
+          if (colorCol) {
+             let val = rows[i][colorCol];
+             if (isColorNumeric) {
+                 // Interpolate between first two palette colors
+                 let norm = (Number(val) - minC) / (maxC - minC || 1);
+                 let c1 = p.color(palette[0]);
+                 let c2 = p.color(palette[1] || palette[0]);
+                 ptColor = p.lerpColor(c1, c2, norm);
+             } else {
+                 // Categorical
+                 let idx = colorDomain.indexOf(val);
+                 if (idx === -1) idx = 0;
+                 ptColor = p.color(getColor(p, idx, palette));
+             }
+          }
+
+          // 3. Draw Point
+          let d = p.dist(p.mouseX-margin.left, p.mouseY-margin.top, cx, cy);
+          // Hit area includes radius + buffer
+          let isHover = d < (r/2 + 4); 
+          let isClicked = isHover && p.mouseIsPressed;
+
+          // Style Setup
+          p.strokeWeight(isHollow ? 2 : 0);
+          if (isHollow) {
+              p.stroke(ptColor); 
+              p.fill(bgColor); 
+          } else {
+              p.noStroke(); 
+              p.fill(ptColor);
+          }
+
+          // Hover State
+          if (isHover) {
+               p.cursor(p.HAND);
+               if(isHollow) p.strokeWeight(3);
+               else { 
+                   let hc = p.color(ptColor); 
+                   hc.setAlpha(200); 
+                   p.fill(hc); 
+                   p.circle(cx, cy, r * 1.5); // Bloom effect
+               }
+               
+               // Tooltip (only if values not static)
+               if (showVals !== true) {
+                   let content = [`X: ${xs[i]}`, `Y: ${ys[i]}`];
+                   if (sizeCol) content.push(`${sizeCol}: ${sizes[i]}`);
+                   if (colorCol) content.push(`${colorCol}: ${rows[i][colorCol]}`);
+                   
+                   p.chart.hoverState = { 
+                     active: true, x: p.mouseX, y: p.mouseY, 
+                     content: content
+                   };
+               }
+          } 
+          
+          if (!isHover || isHollow) p.circle(cx, cy, r);
+
+          // 4. Value Labels
+          let drawLabel = false;
+          if (showVals === true) drawLabel = true;
+          else if (showVals === 'click' && isClicked) drawLabel = true;
+
+          if (drawLabel) {
+              p.noStroke();
+              p.fill(TEXT_COLOR);
+              p.textSize(10);
+              p.textAlign(p.CENTER, p.CENTER);
+              
+              let txt = sizeCol ? String(sizes[i]) : String(ys[i]); 
+              
+              let offset = r/2 + 8;
+              let ly = cy - offset;
+
+              if (lblPos === 'bottom') ly = cy + offset;
+              else if (lblPos === 'auto' && cy < 20) ly = cy + offset;
+
+              p.text(txt, cx, ly);
+          }
+      }
+      p.pop();
+  };
+
+// ==========================================
+// 7. HISTOGRAM 
+// ==========================================
+
+p5.prototype.hist = function(data, options = {}) {
+    const p = this;
+    let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+    const col = options.x || options.column || df.columns[0];
+    
+    // --- Data Preparation (Binning) ---
+    const vals = df.col(col).map(Number).filter(v => !isNaN(v));
+    if (vals.length === 0) return;
+    
+    // Determine bounds and optimal bin size (Natural Bins)
+    const requestedBins = options.bins || 10;
+    const minRaw = Math.min(...vals);
+    const maxRaw = Math.max(...vals);
+    const span = maxRaw - minRaw;
+    const roughBinWidth = span / requestedBins;
+    
+    const powersOf10 = Math.pow(10, Math.floor(Math.log10(roughBinWidth)));
+    const factors = [1, 2, 5, 10];
+    let step = powersOf10;
+    
+    for (const factor of factors) {
+        if (factor * powersOf10 >= roughBinWidth) {
+            step = factor * powersOf10;
+            break;
+        }
     }
-  }
-  p.pop();
+    
+    const minV = Math.floor(minRaw / step) * step;
+    const maxV = Math.ceil(maxRaw / step) * step;
+    const finalSpan = maxV - minV;
+    const finalBins = Math.round(finalSpan / step);
+    
+    let counts = new Array(finalBins).fill(0);
+    
+    vals.forEach(v => {
+        let idx = Math.floor((v - minV) / step);
+        if (idx < 0) idx = 0;
+        if (idx >= finalBins) idx = finalBins - 1;
+        counts[idx]++;
+    });
 
-  // Draw outer border
-  p.push();
-  p.noFill();
-  p.stroke(opts.borderColor || 0);
-  p.strokeWeight(2);
-  p.rect(innerX, innerY, innerW, headerHeight + rows.length * rowHeight);
-  p.pop();
+    const binEdges = Array.from({ length: finalBins + 1 }, (_, i) => minV + step * i);
+    
+    // --- Layout and Scaling ---
+    const maxCount = Math.max(...counts);
+    const margin = options.margin || { top: 60, right: 40, bottom: 60, left: 80 };
+    const w = (options.width || p.width) - margin.left - margin.right;
+    const h = (options.height || p.height) - margin.top - margin.bottom;
+    
+    const maxAxisVal = Math.ceil(maxCount / 5) * 5;
+    const barW = w / finalBins; 
+    
+    // 1. Determine Background Luminance for Contrast
+    const bgColor = options.background || p.color(255); 
+    const bg = p.color(bgColor);
+    const bgLuminance = (p.red(bg) * 0.299 + p.green(bg) * 0.587 + p.blue(bg) * 0.114);
+    
+    // 2. Set Default Border Color for Reproducible Contrast
+    const defaultContrastColor = (bgLuminance > 128) ? p.color('#333333') : p.color('#CCCCCC');
+    
+    const borderWeight = options.borderWeight || 1;
+    const borderColor = options.borderColor || defaultContrastColor; 
+    const color = getColor(p, 0, options.palette);
 
-  // Show row count info
-  if (data.nRows() > maxRows) {
+    // Text color contrast for labels on top of bars
+    const barColorLuminance = (p.red(p.color(color)) * 0.299 + p.green(p.color(color)) * 0.587 + p.blue(p.color(color)) * 0.114);
+    const textColorContrast = (barColorLuminance > 128) ? TEXT_COLOR : p.color(255);
+
+    const showLabels = options.showLabels !== undefined ? options.showLabels : true; 
+    
     p.push();
-    p.textAlign(p.CENTER, p.TOP);
-    p.textSize(opts.labelSize || 10);
-    p.fill(100);
-    const infoY = innerY + headerHeight + rows.length * rowHeight + 5;
-    p.text(`Showing ${maxRows} of ${data.nRows()} rows`, x + w / 2, infoY);
+    p.translate(margin.left, margin.top);
+    
+    // Metadata (Titles, Labels)
+    options.xLabel = options.xLabel || col;
+    options.yLabel = options.yLabel || "Count";
+    options.title = options.title || `Histogram of ${col}`;
+    
+    p.textFont(options.font || DEFAULT_FONT);
+    drawMeta(p, options, w, h);
+
+    // --- Axes and Ticks ---
+    p.textFont(options.font || DEFAULT_FONT);
+    
+    // X-axis (Base line)
+    p.stroke(150); p.strokeWeight(1.5); p.line(0, h, w, h);
+    
+    // Y-axis (Vertical line)
+    p.line(0, 0, 0, h); 
+    
+    // Y-ticks
+    p.stroke(200); p.strokeWeight(1);
+    for(let i = 0; i <= 5; i++) {
+        let yVal = h - (h / 5) * i;
+        let labelVal = (maxAxisVal / 5) * i;
+        p.line(-5, yVal, 0, yVal);
+        
+        // Ensure Y-axis labels have no stroke
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); 
+        p.textAlign(p.RIGHT, p.CENTER);
+        p.text(labelVal, -8, yVal);
+        p.stroke(200);
+    }
+    
+    // X-Ticks (At Edges)
+    p.fill(TEXT_COLOR); p.textSize(10);
+    const TEXT_BOX_WIDTH = 30; // Define text box width for 4-argument p.text()
+    const TICK_LABEL_PADDING = 3; 
+    
+    // Controlled Label Decimation ---
+    // 1. Estimate the space needed for a label (e.g., 20px) plus a buffer (5px) = 25px
+    const minLabelSpace = 25; 
+    
+    // 2. Calculate how many bins fit in that space
+    let labelEvery = Math.max(1, Math.ceil(minLabelSpace / barW));
+    // -----------------------------------------
+    
+    binEdges.forEach((edgeValue, i) => {
+        const xPos = i * barW; 
+        
+        p.stroke(200); 
+        p.line(xPos, h, xPos, h + 5);
+
+        // Decide if we should show the label based on the controlled decimation
+        const showLabel = (i % labelEvery === 0 || i === finalBins || i === 0);
+
+        if (showLabel) {
+            p.noStroke();
+            
+            let align = p.CENTER;
+            let textX = xPos;
+            
+            let labelText = Number.isInteger(edgeValue) ? String(edgeValue) : edgeValue.toFixed(1);
+
+            // Handle start and end edge alignment to prevent clipping
+            if (i === 0) {
+                // Left Edge: Align left, box starts at xPos (0)
+                align = p.LEFT;
+                
+                p.textAlign(align, p.TOP);
+                p.text(labelText, textX, h + 8, TEXT_BOX_WIDTH); 
+
+            } else if (i === finalBins) {
+                // **FIX: Right Edge Special Alignment with Padding**
+                // Use 2-argument p.text() which perfectly respects p.RIGHT alignment.
+                // Add TICK_LABEL_PADDING to push the text past the tick mark.
+                align = p.RIGHT; 
+                
+                p.textAlign(align, p.TOP);
+                p.text(labelText, xPos + TICK_LABEL_PADDING, h + 8); 
+
+            } else {
+                // Internal Ticks: Center aligned using 4-argument p.text()
+                align = p.CENTER;
+                // Shift the drawing point left by half the text box width 
+                // so the center of the 30px box is at xPos.
+                textX -= TEXT_BOX_WIDTH / 2;
+                
+                p.textAlign(align, p.TOP);
+                
+                // The p.text function with 4 arguments treats the x, y coordinates as the corner
+                // of the text box.
+                p.text(labelText, textX, h + 8, TEXT_BOX_WIDTH); 
+            }
+        }
+    });
+
+    // --- Draw Bars (Touching with Dynamic Border and Tooltips) ---
+    p.textFont(options.font || DEFAULT_FONT); 
+
+    counts.forEach((count, i) => {
+        const rectX = i * barW;
+        const rectH = p.map(count, 0, maxAxisVal, 0, h);
+        const rectY = h - rectH;
+        
+        // Tooltip Check
+        const gx = margin.left + rectX;
+        const gy = margin.top + rectY;
+        
+        const binStart = binEdges[i];
+        const binEnd = binEdges[i+1];
+        
+        let isHover = false;
+        if (p.mouseX >= gx && p.mouseX <= gx + barW && p.mouseY >= gy && p.mouseY <= gy + rectH) {
+            isHover = true;
+            p.chart.hoverState = {
+                active: true,
+                x: p.mouseX,
+                y: p.mouseY,
+                content: [
+                    `Range: ${binStart}—${binEnd}`,
+                    `Count: ${count}`
+                ]
+            };
+            p.cursor(p.HAND);
+        }
+        
+        // Coloring and Drawing
+        p.stroke(borderColor); 
+        p.strokeWeight(borderWeight); 
+        p.fill(color); 
+        
+        if (isHover) {
+            let hoverColor = p.color(color);
+            hoverColor.setAlpha(200);
+            p.fill(hoverColor);
+        }
+        
+        p.rect(rectX, rectY, barW, rectH);
+
+        // Value Labels (Above Bar)
+        if (showLabels) {
+            p.noStroke(); 
+            p.fill(TEXT_COLOR); 
+            p.textAlign(p.CENTER, p.BOTTOM); 
+            p.textSize(10);
+            
+            p.text(count, rectX + barW / 2, rectY - 2); 
+        }
+    });
+
     p.pop();
-  }
 };
+  // ==========================================
+  // 8. TABLE
+  // ==========================================
 
-// ---------------------------------------------------------
-// HISTOGRAM
-// ---------------------------------------------------------
+  // Creates an interactive table with hover effects, optional search, and pagination
+  // Parameters:
+  //   - data: Array of objects or DataFrame
+  //   - options: {
+  //       title: string - Table title (default: "Data Table")
+  //       x, y: number - Position coordinates
+  //       width: number - Table width
+  //       maxRows: number - Max rows to display (default: 10, pagination)
+  //       searchable: boolean - Enable search input (default: false)
+  //       tooltip: string - Custom tooltip message on hover (optional)
+  //       id: string - Unique identifier for search input
+  //       pagination: boolean - Enable pagination controls (default: false)
+  //       page: number - Current page number (0-indexed, for external control)
+  //       onPageChange: function - Callback when page changes
+  //     }
+  p5.prototype.table = function(data, options = {}) {
+      const p = this;
+      // Convert data to DataFrame if not already
+      let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+      const id = options.id || 'p5chart_table';
+      
+      // Auto-enable searchable and pagination for tables with more than 10 rows
+      const totalRowCount = df.rows.length;
+      const searchable = options.searchable !== undefined ? options.searchable : (totalRowCount > 10);
+      const pagination = options.pagination !== undefined ? options.pagination : (totalRowCount > 10);
+      
+      // Initialize pagination state if not exists
+      if (!p.chart._tableStates) p.chart._tableStates = {};
+      if (!p.chart._tableStates[id]) {
+          p.chart._tableStates[id] = { currentPage: options.page || 0 };
+      }
+      const state = p.chart._tableStates[id];
+      
+      // Layout dimensions (calculate early for search input positioning)
+      const x = options.x || 20; 
+      const y = options.y || 80;
+      const w = options.width || p.width - 40;
+      const rowH = 30;
+      
+      // Only create search input if searchable is true
+      if (searchable) {
+          if (!p.chart.inputs[id]) {
+              let inp = p.createInput('');
+              // Position at bottom left corner
+              inp.position(x, y + 400); // Will be adjusted dynamically
+              inp.attribute('placeholder', 'Search...');
+              inp.style('padding', '4px 8px');
+              inp.style('font-family', 'sans-serif');
+              inp.style('font-size', '12px');
+              inp.style('width', '150px');
+              inp.style('border', '1px solid #ccc');
+              inp.style('border-radius', '3px');
+              p.chart.inputs[id] = inp;
+          }
+      }
+      
+      // Filter rows based on search query
+      const search = searchable && p.chart.inputs[id] ? p.chart.inputs[id].value().toLowerCase() : '';
+      let rows = df.rows;
+      if (search) rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(search)));
+      
+      // Pagination calculations
+      const maxRows = options.maxRows || 10;
+      const totalPages = Math.ceil(rows.length / maxRows);
+      const currentPage = Math.min(state.currentPage, totalPages - 1);
+      state.currentPage = Math.max(0, currentPage);
+      
+      const startIdx = state.currentPage * maxRows;
+      const endIdx = Math.min(startIdx + maxRows, rows.length);
+      const dispRows = rows.slice(startIdx, endIdx);
+      const cols = df.columns;
+      
+      // Update dimensions
+      const colW = w / cols.length;
+      
+      // Update search input position to bottom left
+      if (searchable && p.chart.inputs[id]) {
+          const tableBottom = y + (dispRows.length + 1) * rowH;
+          p.chart.inputs[id].position(x, tableBottom + 15);
+      }
+      
+      // Interactive hover - track which cell is hovered
+      let hoveredCell = null;
+      const mx = p.mouseX - x;
+      const my = p.mouseY - y;
+      
+      if (mx >= 0 && mx <= w && my >= 0 && my <= (dispRows.length + 1) * rowH) {
+          const hovCol = Math.floor(mx / colW);
+          const hovRow = Math.floor(my / rowH);
+          if (hovCol >= 0 && hovCol < cols.length && hovRow >= 0 && hovRow <= dispRows.length) {
+              hoveredCell = { row: hovRow, col: hovCol };
+          }
+      }
+      
+      // Custom tooltip message (optional)
+      const tooltipMsg = options.tooltip;
+      
+      // Color options with defaults
+      const headerColor = options.headerColor || p.color(240);
+      const rowColor1 = options.rowColor1 || p.color(255);
+      const rowColor2 = options.rowColor2 || p.color(250);
+      const hoverColor = options.hoverColor || p.color(150, 200, 255);
+      const borderColor = options.borderColor || p.color(200);
+      
+      // Draw title (without page count)
+      const title = options.title || 'Data Table';
+      p.push();
+      p.translate(x, y - 30);
+      p.fill(TEXT_COLOR); 
+      p.textSize(16); 
+      p.textStyle(p.BOLD);
+      p.textAlign(p.LEFT, p.BOTTOM); 
+      p.textFont(DEFAULT_FONT);
+      p.text(title, 0, 0);
+      p.pop();
+      
+      // Draw table
+      p.push();
+      p.translate(x, y);
+        // Draw header row
+        p.fill(headerColor); p.noStroke(); p.rect(0, 0, w, rowH);
+        p.fill(0); p.textAlign(p.LEFT, p.CENTER); p.textStyle(p.NORMAL); p.textFont(DEFAULT_FONT);
+        cols.forEach((c, i) => {
+            // Highlight header on hover
+            if (hoveredCell && hoveredCell.row === 0 && hoveredCell.col === i) {
+                p.fill(p.lerpColor(headerColor, p.color(200), 0.3)); p.rect(i*colW, 0, colW, rowH);
+            }
+            p.fill(0);
+            p.text(truncate(p, c, colW-10), i*colW + 5, rowH/2);
+        });
+      
+        // Draw data rows
+        p.textStyle(p.NORMAL);
+        dispRows.forEach((r, i) => {
+          let ry = (i+1)*rowH;
+          // Alternating row colors for better readability
+          let bg = i % 2 === 0 ? rowColor1 : rowColor2;
+          
+          // Highlight cell on hover with custom hover color
+          if (hoveredCell && hoveredCell.row === i + 1) {
+              bg = p.lerpColor(bg, hoverColor, 0.3);
+          }
+          
+          // Draw row background
+          p.fill(bg); p.rect(0, ry, w, rowH);
+          
+          // Determine text color based on background (color protection)
+          let cellTextColor;
+          if (typeof bg === 'number') {
+              // Grayscale value - simple threshold
+              cellTextColor = bg > 128 ? 0 : 255;
+          } else {
+              // Color object from lerpColor - calculate luminance
+              let r = p.red(bg);
+              let g = p.green(bg);
+              let b = p.blue(bg);
+              let luminance = 0.299 * r/255 + 0.587 * g/255 + 0.114 * b/255;
+              cellTextColor = luminance > 0.6 ? 0 : 255;
+          }
+          
+          p.fill(cellTextColor);
+          
+          // Draw cell values
+          cols.forEach((c, j) => {
+              // Show tooltip only if user provided a tooltip message
+              if (tooltipMsg && hoveredCell && hoveredCell.row === i + 1 && hoveredCell.col === j) {
+                  p.push();
+                  const tooltipW = p.textWidth(tooltipMsg) + 20;
+                  const tooltipH = 25;
+                  const tooltipX = j*colW + colW/2 - tooltipW/2;
+                  const tooltipY = ry - tooltipH - 5;
+                  
+                  // Draw tooltip box
+                  p.fill(50, 50, 50, 230);
+                  p.noStroke();
+                  p.rect(tooltipX, tooltipY, tooltipW, tooltipH, 4);
+                  p.fill(255);
+                  p.textAlign(p.CENTER, p.CENTER);
+                  p.text(tooltipMsg, tooltipX + tooltipW/2, tooltipY + tooltipH/2);
+                  p.pop();
+              }
+              p.fill(cellTextColor);
+              p.text(truncate(p, r[c], colW-10), j*colW + 5, ry + rowH/2);
+          });
+        });
+      // Draw table border
+      p.stroke(borderColor); p.noFill(); p.rect(0, 0, w, (dispRows.length + 1) * rowH);
+      p.pop();
+      
+      // Draw pagination controls if enabled (compact, bottom-right corner)
+      if (pagination && totalPages > 1) {
+          const tableBottom = y + (dispRows.length + 1) * rowH;
+          const paginationY = tableBottom + 15;
+          const paginationX = x + w;
+          
+          p.push();
+          p.textFont(DEFAULT_FONT);
+          p.textSize(12);
+          
+          // Arrow button dimensions
+          const arrowSize = 24;
+          const spacing = 5;
+          const pageTextWidth = 50;
+          
+          // Page text: "1 of 4"
+          const pageText = `${state.currentPage + 1} of ${totalPages}`;
+          const textX = paginationX - arrowSize - spacing - pageTextWidth/2;
+          const prevX = paginationX - arrowSize * 2 - spacing * 2 - pageTextWidth;
+          const nextX = paginationX - arrowSize;
+          
+          // Check button hovers
+          const hoverPrev = p.mouseX > prevX && p.mouseX < prevX + arrowSize && 
+                           p.mouseY > paginationY && p.mouseY < paginationY + arrowSize;
+          const hoverNext = p.mouseX > nextX && p.mouseX < nextX + arrowSize && 
+                           p.mouseY > paginationY && p.mouseY < paginationY + arrowSize;
+          
+          // Previous arrow button
+          if (state.currentPage > 0) {
+              p.fill(hoverPrev ? p.color(150, 180, 255) : p.color(100, 150, 255));
+          } else {
+              p.fill(220);
+          }
+          p.noStroke();
+          p.rect(prevX, paginationY, arrowSize, arrowSize, 3);
+          // Draw left arrow (switched to point left)
+          p.fill(255);
+          p.triangle(prevX + 8, paginationY + 12, 
+                    prevX + 16, paginationY + 6, 
+                    prevX + 16, paginationY + 18);
+          
+          // Page text
+          p.fill(100);
+          p.textAlign(p.CENTER, p.CENTER);
+          p.text(pageText, textX, paginationY + arrowSize/2);
+          
+          // Next arrow button
+          if (state.currentPage < totalPages - 1) {
+              p.fill(hoverNext ? p.color(150, 180, 255) : p.color(100, 150, 255));
+          } else {
+              p.fill(220);
+          }
+          p.rect(nextX, paginationY, arrowSize, arrowSize, 3);
+          // Draw right arrow (switched to point right)
+          p.fill(255);
+          p.triangle(nextX + 16, paginationY + 12, 
+                    nextX + 8, paginationY + 6, 
+                    nextX + 8, paginationY + 18);
+          
+          p.pop();
+          
+          // Handle button clicks
+          if (p.mouseIsPressed && p.frameCount % 10 === 0) {
+              if (hoverPrev && state.currentPage > 0) {
+                  state.currentPage--;
+                  if (options.onPageChange) options.onPageChange(state.currentPage);
+              } else if (hoverNext && state.currentPage < totalPages - 1) {
+                  state.currentPage++;
+                  if (options.onPageChange) options.onPageChange(state.currentPage);
+              }
+          }
+          
+          // Handle keyboard navigation
+          if (p.keyIsPressed) {
+              if (p.keyCode === p.LEFT_ARROW && state.currentPage > 0 && p.frameCount % 10 === 0) {
+                  state.currentPage--;
+                  if (options.onPageChange) options.onPageChange(state.currentPage);
+              } else if (p.keyCode === p.RIGHT_ARROW && state.currentPage < totalPages - 1 && p.frameCount % 10 === 0) {
+                  state.currentPage++;
+                  if (options.onPageChange) options.onPageChange(state.currentPage);
+              }
+          }
+      }
+  };
 
-p5.prototype.histChart = function () {
-  const p = this;
+  // ==========================================
+  // 9. CHOROPLETH (Maps)
+  // ==========================================
+  
+  p5.prototype.choropleth = function(data, options = {}) {
+      const p = this;
+      let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+      const features = options.features; 
+      if (!features) throw new Error("Choropleth: options.features (GeoJSON) is required.");
+      
+      const keyCol = options.joinKey || 'id'; 
+      const propKey = options.featureKey || 'id'; 
+      const valCol = options.value || df.columns[1];
+      
+      const margin = options.margin || { top: 50, right: 20, bottom: 40, left: 20 };
+      const w = (options.width || p.width) - margin.left - margin.right;
+      const h = (options.height || p.height) - margin.top - margin.bottom;
 
-  const args = arguments;
-  let x, y, w, h, data, opts;
-  if (typeof args[0] === 'number') {
-    x = args[0];
-    y = args[1];
-    w = args[2];
-    h = args[3];
-    data = args[4];
-    opts = args[5] || {};
-  } else {
-    data = args[0];
-    opts = args[1] || {};
-    const margin = opts.margin != null ? opts.margin : 40;
-    x = margin;
-    y = margin;
-    w = p.width - margin * 2;
-    h = p.height - margin * 2;
-  }
+      p.push();
+      p.translate(margin.left, margin.top);
+      drawMeta(p, options, w, h);
+      
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      features.features.forEach(f => {
+          const coords = f.geometry.coordinates;
+          const type = f.geometry.type;
+          function check(ring) {
+              ring.forEach(pt => {
+                  if (pt[0] < minX) minX = pt[0]; if (pt[0] > maxX) maxX = pt[0];
+                  if (pt[1] < minY) minY = pt[1]; if (pt[1] > maxY) maxY = pt[1];
+              });
+          }
+          if (type === 'Polygon') coords.forEach(check);
+          else if (type === 'MultiPolygon') coords.forEach(poly => poly.forEach(check));
+      });
+      
+      const vals = df.col(valCol).map(Number).filter(v => !isNaN(v));
+      const minVal = (vals.length ? Math.min(...vals) : 0);
+      const maxVal = (vals.length ? Math.max(...vals) : 1);
+      
+      // Cache rows for performance
+      const rows = df.rows;
 
-  opts = opts || {};
+      features.features.forEach(f => {
+          const id = f.properties[propKey];
+          const row = rows.find(r => r[keyCol] == id);
+          const val = row ? Number(row[valCol]) : null;
+          let c = p.color(240);
+          if (val !== null && !isNaN(val)) {
+              let norm = p.map(val, minVal, maxVal, 0, 1);
+              c = p.lerpColor(p.color("#E7F6F2"), p.color("#2C3333"), norm);
+          }
+          p.fill(c); p.stroke(255); p.strokeWeight(options.lineSize || 1);
+          const drawPoly = (ring) => {
+              p.beginShape();
+              ring.forEach(pt => {
+                  let px = p.map(pt[0], minX, maxX, 0, w);
+                  let py = p.map(pt[1], minY, maxY, h, 0); 
+                  p.vertex(px, py);
+              });
+              p.endShape(p.CLOSE);
+          };
+          if (f.geometry.type === 'Polygon') f.geometry.coordinates.forEach(drawPoly);
+          else if (f.geometry.type === 'MultiPolygon') f.geometry.coordinates.forEach(poly => poly.forEach(drawPoly));
+      });
+      p.pop();
+  };
 
-  let values = [];
-  const bins = opts.bins || null;
-
-  if (data instanceof p.chart.DataFrame) {
-    const col = opts.column || opts.x || opts.value || null;
-    if (!col) {
-      throw new Error('histChart: when using a DataFrame, provide options.column (or x/value).');
-    }
-    values = data.column(col).map(Number);
-    if (!opts.title) opts.title = 'Histogram of ' + col;
-    if (!opts.xLabel) opts.xLabel = col;
-    if (!opts.yLabel) opts.yLabel = 'Count';
-  } else if (Array.isArray(data)) {
-    values = data.map(Number);
-    if (!opts.title) opts.title = 'Histogram';
-    if (!opts.xLabel) opts.xLabel = 'Value';
-    if (!opts.yLabel) opts.yLabel = 'Count';
-  } else {
-    throw new Error('histChart: data must be an array or a DataFrame.');
-  }
-
-  // Inline _drawHistChart + _computeHistogram + axes + labels
-  const pad = opts.padding != null ? opts.padding : 24;
-  const innerX = x + pad;
-  const innerY = y + pad;
-  const innerW = w - 2 * pad;
-  const innerH = h - 2 * pad;
-
-  // compute histogram
-  const minVal = Math.min.apply(null, values);
-  const maxVal = Math.max.apply(null, values);
-  const span = (maxVal - minVal) || 1;
-  const b = bins || Math.round(Math.sqrt(values.length)) || 10;
-  const counts = new Array(b).fill(0);
-  const edges = [];
-  for (let i = 0; i <= b; i++) edges.push(minVal + (span * i) / b);
-  for (let i = 0; i < values.length; i++) {
-    let t = (values[i] - minVal) / (span || 1);
-    let idx = Math.floor(t * b);
-    if (idx < 0) idx = 0;
-    if (idx >= b) idx = b - 1;
-    counts[idx]++;
-  }
-
-  const maxCount = Math.max.apply(null, counts) || 1;
-
-  p.push();
-  p.noStroke();
-  p.fill(opts.background || 255);
-  p.rect(x, y, w, h);
-  p.pop();
-
-  // y-axis from 0 to maxCount
-  let yMin = 0;
-  let yMax = maxCount;
-
-  if (yMin === yMax) {
-    if (yMin === 0) {
-      yMin = -1;
-      yMax = 1;
-    } else {
-      yMin = yMin - Math.abs(yMin) * 0.1;
-      yMax = yMax + Math.abs(yMax) * 0.1;
-    }
-  }
-  let spanY = yMax - yMin;
-  const tickCount = 5;
-  const rawStep = spanY / (tickCount - 1);
-  const mag = Math.pow(10, Math.floor(Math.log10(rawStep)));
-  const norm = rawStep / mag;
-  let step;
-  if (norm < 1.5) step = 1 * mag;
-  else if (norm < 3) step = 2 * mag;
-  else if (norm < 7) step = 5 * mag;
-  else step = 10 * mag;
-
-  const niceMin = Math.floor(yMin / step) * step;
-  const niceMax = Math.ceil(yMax / step) * step;
-  const ticks = [];
-  for (let v = niceMin; v <= niceMax + 1e-9; v += step) {
-    ticks.push(v);
-  }
-  yMin = niceMin;
-  yMax = niceMax;
-
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY, innerX, innerY + innerH);
-
-  p.textAlign(p.RIGHT, p.CENTER);
-  p.textSize(opts.tickSize || 10);
-
-  for (let i = 0; i < ticks.length; i++) {
-    const t = ticks[i];
-    const tNorm = (t - yMin) / (yMax - yMin || 1);
-    const ty = innerY + innerH - tNorm * innerH;
-    p.line(innerX - 4, ty, innerX, ty);
-    p.noStroke();
-    p.text(t, innerX - 6, ty);
-    p.stroke(opts.axisColor || 0);
-  }
-
-  p.stroke(opts.axisColor || 0);
-  p.line(innerX, innerY + innerH, innerX + innerW, innerY + innerH);
-
-  const n = counts.length;
-  const barW = innerW / n;
-  const gap = Math.min(barW * 0.2, 8);
-  const bw = barW - gap;
-  const offset = gap / 2;
-
-  p.noStroke();
-  p.fill(opts.barColor || 120);
-
-  for (let i = 0; i < n; i++) {
-    const c = counts[i];
-    const t = (c - yMin) / (yMax - yMin || 1);
-    const barH = t * innerH;
-    const bx = innerX + i * barW + offset;
-    const by = innerY + innerH - barH;
-    p.rect(bx, by, bw, barH);
-  }
-
-  if (opts.showBinLabels) {
-    p.textAlign(p.CENTER, p.TOP);
-    p.textSize(opts.tickSize || 10);
-    for (let i = 0; i < n; i++) {
-      const cx2 = innerX + i * barW + barW / 2;
-      const ty = innerY + innerH + 4;
-      const label = edges[i].toFixed(1) + '–' + edges[i + 1].toFixed(1);
+  // ==========================================
+  // 10. MAP (OpenStreetMap Integration)
+  // ==========================================
+  
+  p5.prototype.mapChart = function(data, options = {}) {
+      const p = this;
+      let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+      
+      // Column mapping
+      const latCol = options.lat || options.latitude || 'lat';
+      const lonCol = options.lon || options.longitude || 'lon';
+      const labelCol = options.label || 'label';
+      const valueCol = options.value || 'value';
+      
+      // Auto-calculate center from data if not provided
+      let autoCenterLat = 37.8;
+      let autoCenterLon = -96;
+      if (!options.centerLat || !options.centerLon) {
+          const lats = df.col(latCol).map(Number).filter(v => !isNaN(v));
+          const lons = df.col(lonCol).map(Number).filter(v => !isNaN(v));
+          if (lats.length > 0 && lons.length > 0) {
+              autoCenterLat = lats.reduce((a, b) => a + b, 0) / lats.length;
+              autoCenterLon = lons.reduce((a, b) => a + b, 0) / lons.length;
+          }
+      }
+      
+      // Map state
+      if (!p.chart._mapState) {
+          p.chart._mapState = {
+              centerLat: options.centerLat || autoCenterLat,
+              centerLon: options.centerLon || autoCenterLon,
+              zoom: options.zoom || 4,
+              tiles: {},
+              hoveredPoint: null
+          };
+      }
+      const state = p.chart._mapState;
+      
+      // Style options
+      const pointColor = options.pointColor || p.color(214, 39, 40);
+      const pointSize = options.pointSize || 12;
+      const showLabels = options.showLabels !== false;
+      const showControls = options.showControls !== false;
+      
+      // Helper: Convert lat/lon to pixel coordinates
+      const latLonToPixel = (lat, lon) => {
+          let x = (lon + 180) / 360 * Math.pow(2, state.zoom) * 256;
+          let latRad = lat * p.PI / 180;
+          let y = (1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / p.PI) / 2 * Math.pow(2, state.zoom) * 256;
+          
+          let centerX = (state.centerLon + 180) / 360 * Math.pow(2, state.zoom) * 256;
+          let centerLatRad = state.centerLat * p.PI / 180;
+          let centerY = (1 - Math.log(Math.tan(centerLatRad) + 1 / Math.cos(centerLatRad)) / p.PI) / 2 * Math.pow(2, state.zoom) * 256;
+          
+          return {
+              x: p.width / 2 + (x - centerX),
+              y: p.height / 2 + (y - centerY)
+          };
+      };
+      
+      // Helper: Load visible tiles
+      const loadVisibleTiles = () => {
+          let tileSize = 256;
+          let numTiles = Math.pow(2, state.zoom);
+          
+          let centerTileX = Math.floor((state.centerLon + 180) / 360 * numTiles);
+          let centerTileY = Math.floor((1 - Math.log(Math.tan(state.centerLat * p.PI / 180) + 1 / Math.cos(state.centerLat * p.PI / 180)) / p.PI) / 2 * numTiles);
+          
+          let tilesWide = Math.ceil(p.width / tileSize) + 2;
+          let tilesHigh = Math.ceil(p.height / tileSize) + 2;
+          
+          for (let x = -tilesWide; x <= tilesWide; x++) {
+              for (let y = -tilesHigh; y <= tilesHigh; y++) {
+                  let tileX = (centerTileX + x + numTiles) % numTiles;
+                  let tileY = centerTileY + y;
+                  if (tileY >= 0 && tileY < numTiles) {
+                      let key = `${state.zoom}/${tileX}/${tileY}`;
+                      if (!state.tiles[key]) {
+                          let url = `https://tile.openstreetmap.org/${state.zoom}/${tileX}/${tileY}.png`;
+                          state.tiles[key] = { loading: true, img: null };
+                          p.loadImage(url, img => { 
+                              state.tiles[key].img = img; 
+                              state.tiles[key].loading = false; 
+                          });
+                      }
+                  }
+              }
+          }
+      };
+      
+      // Helper: Draw tiles
+      const drawTiles = () => {
+          let tileSize = 256;
+          let numTiles = Math.pow(2, state.zoom);
+          
+          let centerTileX = Math.floor((state.centerLon + 180) / 360 * numTiles);
+          let centerTileY = Math.floor((1 - Math.log(Math.tan(state.centerLat * p.PI / 180) + 1 / Math.cos(state.centerLat * p.PI / 180)) / p.PI) / 2 * numTiles);
+          
+          let centerPixelX = (state.centerLon + 180) / 360 * numTiles * tileSize;
+          let centerPixelY = (1 - Math.log(Math.tan(state.centerLat * p.PI / 180) + 1 / Math.cos(state.centerLat * p.PI / 180)) / p.PI) / 2 * numTiles * tileSize;
+          
+          let offsetX = p.width / 2 - centerPixelX;
+          let offsetY = p.height / 2 - centerPixelY;
+          
+          for (let key in state.tiles) {
+              if (state.tiles[key].img) {
+                  let parts = key.split('/');
+                  let z = parseInt(parts[0]);
+                  let x = parseInt(parts[1]);
+                  let y = parseInt(parts[2]);
+                  
+                  if (z === state.zoom) {
+                      let px = x * tileSize + offsetX;
+                      let py = y * tileSize + offsetY;
+                      p.image(state.tiles[key].img, px, py);
+                  }
+              }
+          }
+      };
+      
+      // Load tiles if needed
+      if (Object.keys(state.tiles).length === 0) {
+          loadVisibleTiles();
+      }
+      
+      // Draw map
+      p.push();
+      drawTiles();
+      
+      // Draw data points
+      state.hoveredPoint = null;
       p.noStroke();
-      p.fill(0);
-      p.text(label, cx2, ty);
-    }
-  }
+      
+      df.rows.forEach(row => {
+          let lat = Number(row[latCol]);
+          let lon = Number(row[lonCol]);
+          let pos = latLonToPixel(lat, lon);
+          
+          if (pos.x >= 0 && pos.x <= p.width && pos.y >= 0 && pos.y <= p.height) {
+              let d = p.dist(p.mouseX, p.mouseY, pos.x, pos.y);
+              let isHovered = d < pointSize;
+              
+              if (isHovered) {
+                  state.hoveredPoint = { row, pos, labelCol, valueCol };
+              }
+              
+              p.fill(pointColor.levels[0], pointColor.levels[1], pointColor.levels[2], isHovered ? 255 : 200);
+              p.ellipse(pos.x, pos.y, isHovered ? pointSize * 1.3 : pointSize, isHovered ? pointSize * 1.3 : pointSize);
+              p.fill(255);
+              p.ellipse(pos.x, pos.y, isHovered ? pointSize * 0.5 : pointSize * 0.33, isHovered ? pointSize * 0.5 : pointSize * 0.33);
+              
+              if (showLabels && row[labelCol]) {
+                  p.fill(0);
+                  p.textAlign(p.CENTER, p.BOTTOM);
+                  p.textSize(11);
+                  p.text(row[labelCol], pos.x, pos.y - (isHovered ? pointSize * 0.6 : pointSize * 0.5));
+              }
+          }
+      });
+      
+      // Draw tooltip
+      if (state.hoveredPoint) {
+          p.cursor(p.HAND);
+          let h = state.hoveredPoint;
+          let lines = [];
+          
+          if (h.row[labelCol]) lines.push(String(h.row[labelCol]));
+          if (h.row[valueCol]) lines.push(`${valueCol}: ${Number(h.row[valueCol]).toLocaleString()}`);
+          lines.push(`Lat: ${Number(h.row[latCol]).toFixed(4)}, Lon: ${Number(h.row[lonCol]).toFixed(4)}`);
+          
+          p.textSize(12);
+          let maxWidth = 0;
+          lines.forEach(l => { maxWidth = Math.max(maxWidth, p.textWidth(l)); });
+          let boxW = maxWidth + 20;
+          let boxH = lines.length * 18 + 10;
+          
+          let tx = p.mouseX + 15;
+          let ty = p.mouseY + 15;
+          if (tx + boxW > p.width) tx = p.mouseX - boxW - 10;
+          if (ty + boxH > p.height) ty = p.mouseY - boxH - 10;
+          
+          p.noStroke();
+          p.fill(0, 0, 0, 220);
+          p.rect(tx, ty, boxW, boxH, 4);
+          p.fill(255);
+          p.textAlign(p.LEFT, p.TOP);
+          lines.forEach((l, i) => p.text(l, tx + 10, ty + 8 + i * 18));
+      } else {
+          p.cursor(p.ARROW);
+      }
+      
+      // Draw controls
+      if (showControls) {
+          p.fill(255, 240);
+          p.noStroke();
+          p.rect(10, 10, 150, 78, 5);
+          p.fill(0);
+          p.textAlign(p.LEFT, p.TOP);
+          p.textSize(12);
+          p.text('Arrow keys: Pan', 15, 15);
+          p.text('+/- keys: Zoom', 15, 32);
+          p.text('Scroll: Zoom', 15, 49);
+          p.text(`Zoom: ${state.zoom}`, 15, 64);
+      }
+      
+      p.pop();
+      
+      // Handle keyboard input for map navigation
+      p._handleMapKeys = function() {
+          let panAmount = 0.5;
+          if (p.keyIsDown(p.LEFT_ARROW)) state.centerLon -= panAmount;
+          if (p.keyIsDown(p.RIGHT_ARROW)) state.centerLon += panAmount;
+          if (p.keyIsDown(p.UP_ARROW)) state.centerLat += panAmount;
+          if (p.keyIsDown(p.DOWN_ARROW)) state.centerLat -= panAmount;
+      };
+      
+      p._handleMapKeyPress = function() {
+          if (p.key === '+' || p.key === '=') {
+              state.zoom = Math.min(18, state.zoom + 1);
+              loadVisibleTiles();
+          }
+          if (p.key === '-' || p.key === '_') {
+              state.zoom = Math.max(2, state.zoom - 1);
+              loadVisibleTiles();
+          }
+      };
+      
+      p._handleMapWheel = function(event) {
+          // Zoom in/out with mouse wheel
+          if (event.delta > 0) {
+              state.zoom = Math.max(2, state.zoom - 1);
+              loadVisibleTiles();
+          } else if (event.delta < 0) {
+              state.zoom = Math.min(18, state.zoom + 1);
+              loadVisibleTiles();
+          }
+          // Prevent page scroll
+          return false;
+      };
+      
+      // Auto-register handlers if not already done
+      if (!p.chart._mapHandlersRegistered) {
+          const originalKeyPressed = p.keyPressed || (() => {});
+          p.keyPressed = function() {
+              originalKeyPressed.call(p);
+              if (p._handleMapKeyPress) p._handleMapKeyPress();
+          };
+          
+          const originalMouseWheel = p.mouseWheel || (() => {});
+          p.mouseWheel = function(event) {
+              const result = originalMouseWheel.call(p, event);
+              if (p._handleMapWheel) {
+                  const mapResult = p._handleMapWheel(event);
+                  if (mapResult === false) return false;
+              }
+              return result;
+          };
+          
+          p.chart._mapHandlersRegistered = true;
+      }
+      
+      // Call navigation handler
+      if (p._handleMapKeys) p._handleMapKeys();
+  };
 
-  const title = opts.title || '';
-  const xLabel = opts.xLabel || '';
-  const yLabel = opts.yLabel || '';
-
-  p.push();
-  p.textAlign(p.CENTER, p.CENTER);
-  p.textSize(opts.titleSize || 14);
-  if (title) p.text(title, x + w / 2, y - 20);
-
-  p.textSize(opts.labelSize || 12);
-  if (xLabel) p.text(xLabel, x + w / 2, y + h + 28);
-
-  if (yLabel) {
-    p.push();
-    p.translate(x - 30, y + h / 2);
-    p.rotate(-p.HALF_PI);
-    p.text(yLabel, 0, 0);
-    p.pop();
-  }
-  p.pop();
-};
+  // ==========================================
+  // 11. DROPDOWN 
+  // ==========================================
+  
+  p5.prototype.createDropdown = function(options = {}) {
+      const p = this;
+      const id = options.id || 'chart_dropdown';
+      if (p.chart.inputs[id]) return p.chart.inputs[id];
+      
+      const sel = p.createSelect();
+      sel.position(options.x || 20, options.y || 20);
+      sel.style('font-family', 'sans-serif');
+      sel.style('padding', '5px');
+      
+      if (options.label) {
+          const lbl = p.createDiv(options.label);
+          lbl.position((options.x || 20), (options.y || 20) - 20);
+          lbl.style('font-size', '12px');
+          lbl.style('font-family', 'sans-serif');
+          p.chart.inputs[id + '_lbl'] = lbl;
+      }
+      
+      if (Array.isArray(options.options)) {
+        options.options.forEach(opt => sel.option(opt));
+      }
+      if (options.onChange) sel.changed(() => options.onChange(sel.value()));
+      
+      p.chart.inputs[id] = sel;
+      return sel;
+  };
+  
+})();
