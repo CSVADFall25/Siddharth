@@ -1,22 +1,22 @@
-let chart;
+// Load data.csv file using DataFrame methods from p5.chart
+let df;
 
-function setup() {
-  createCanvas(400, 400);
-
-  // Create a chart region (use "this" to ensure correct binding)
-  chart = this.createChart(40, 40, 320, 240, {
-    background: 250,
-    axisColor: 0,
-    barColor: 80,
-    padding: 24
-  });
-
-  const values = [4, 7, 3, 10, 6, 8];
-
-  background(255);
-  chart.bar(values);
+function preload() {
+  df = loadDataFrame('data.csv');
 }
 
-function draw() {
-  // No animation yet
+function setup() {
+  createCanvas(800, 600);
+  background(240);
+  
+  // Display the data as a table
+  tableChart(df, {
+    title: 'Data from data.csv',
+    maxRows: 10,
+    headerBackground: color(100, 150, 200),
+    rowBackground: color(250),
+    altRowBackground: color(255),
+    textSize: 12,
+    headerTextSize: 14
+  });
 }
