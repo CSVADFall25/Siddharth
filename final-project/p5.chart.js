@@ -31,21 +31,111 @@ function getAutoLabelColor(bgColor) {
 (function() {
 
   // ==========================================
-  // 0. GLOBALS & CONFIG
+  // 0. GLOBALS & CONFIG - OVERALL AESTHETICS
   // ==========================================
   
   p5.prototype.chart = p5.prototype.chart || {};
   
-  // Palette
+  // ====== COLOR PALETTE ======
+  // Default color palette for all charts
   p5.prototype.chart.palette = [
     "#395B64", "#A5C9CA", "#E7F6F2", "#2C3333", 
     "#FF8B8B", "#EB4747", "#ABC9FF", "#FFD966"
   ];
   
-  // Typography Defaults
+  // ====== TYPOGRAPHY ======
   const DEFAULT_FONT = '"Roboto", "Helvetica Neue", "Helvetica", "Arial", sans-serif';
   const TEXT_COLOR = "#333333";
   const SUBTEXT_COLOR = "#666666";
+  const TITLE_SIZE = 16;
+  const SUBTITLE_SIZE = 13;
+  const AXIS_LABEL_SIZE = 12;
+  const TICK_LABEL_SIZE = 10;
+  const DATA_LABEL_SIZE = 11;
+  const SOURCE_AUTHOR_SIZE = 7;
+  
+  // ====== CHART MARGINS ======
+  const DEFAULT_MARGIN = { top: 60, right: 40, bottom: 60, left: 80 };
+  
+  // ====== AXES & GRIDLINES ======
+  const AXIS_COLOR = "#969696"; // 150 gray
+  const AXIS_WEIGHT = 2;
+  const TICK_COLOR = "#C8C8C8"; // 200 gray
+  const TICK_WEIGHT = 1;
+  const TICK_LENGTH = 5;
+  const NUM_TICKS = 5;
+  
+  // ====== POINTS (Scatter & Line) ======
+  const DEFAULT_POINT_SIZE = 6;
+  const DEFAULT_POINT_SIZE_SCATTER = 8;
+  const MIN_POINT_SIZE = 5;
+  const MAX_POINT_SIZE = 20;
+  const POINT_HOVER_SCALE = 1.5;
+  const POINT_STROKE_WEIGHT = 2;
+  const POINT_HOVER_STROKE_WEIGHT = 3;
+  
+  // ====== LINES ======
+  const DEFAULT_LINE_SIZE = 2;
+  
+  // ====== BARS ======
+  const BAR_GAP_RATIO = 0.8; // 0.8 = 20% gap, 80% bar
+  const BAR_LABEL_POS = 'auto'; // 'auto', 'inside', 'outside', 'bottom', 'none'
+  const BAR_LABEL_SIZE = 10;
+  
+  // ====== PIE/DONUT ======
+  const PIE_LABEL_SIZE = 11;
+  const PIE_STROKE_WEIGHT = 2;
+  const PIE_STROKE_COLOR = "#FFFFFF";
+  const PIE_HOVER_SCALE = 1.05;
+  const DONUT_HOLE_RADIUS = 0.6;
+  
+  // ====== HISTOGRAM ======
+  const HIST_DEFAULT_BINS = 10;
+  const HIST_BORDER_WEIGHT = 1;
+  const HIST_LABEL_SIZE = 10;
+  
+  // ====== TABLE ======
+  const TABLE_ROW_HEIGHT = 30;
+  const TABLE_MAX_ROWS = 10;
+  const TABLE_HEADER_COLOR = "#F0F0F0"; 
+  const TABLE_ROW_COLOR_1 = "#FFFFFF"; 
+  const TABLE_ROW_COLOR_2 = "#FAFAFA"; 
+  const TABLE_HOVER_COLOR = "#96C8FF"; 
+  const TABLE_BORDER_COLOR = "#C8C8C8"; 
+  const TABLE_TEXT_SIZE = 12;
+  const TABLE_SEARCH_WIDTH = 150;
+  const TABLE_ARROW_SIZE = 24;
+  
+  // ====== MAP ======
+  const MAP_DEFAULT_ZOOM = 4;
+  const MAP_POINT_SIZE = 12;
+  const MAP_POINT_COLOR = "#D62728"; 
+  const MAP_POINT_HOVER_SCALE = 1.3;
+  const MAP_LABEL_SIZE = 11;
+  const MAP_PAN_AMOUNT = 0.5;
+  
+  // ====== TOOLTIPS ======
+  const TOOLTIP_BG_COLOR = "rgba(0, 0, 0, 0.86)"; 
+  const TOOLTIP_TEXT_COLOR = "#FFFFFF";
+  const TOOLTIP_TEXT_SIZE = 12;
+  const TOOLTIP_PADDING = 10;
+  const TOOLTIP_LINE_HEIGHT = 18;
+  const TOOLTIP_BORDER_RADIUS = 4;
+  const TOOLTIP_OFFSET = 15;
+  
+  // ====== BACKGROUNDS ======
+  const DEFAULT_BG_COLOR = "#FFFFFF";
+  
+  // ====== HOVER EFFECTS ======
+  const HOVER_ALPHA = 200; // Alpha for hover state (out of 255)
+  const HOVER_CURSOR = 'HAND';
+  
+  // ====== LABEL POSITIONING ======
+  const LABEL_OFFSET = 10;
+  const LABEL_PADDING = 5;
+  
+  // ====== TRUNCATION ======
+  const TRUNCATE_SUFFIX = "...";
   
   p5.prototype.chart.inputs = {}; // Cache for DOM elements
 
@@ -313,7 +403,7 @@ function getAutoLabelColor(bgColor) {
       p.push();
       p.noStroke();
       p.textFont(opts.font || DEFAULT_FONT);
-      p.drawingContext.font = 'bold 16px Roboto, sans-serif';
+      p.drawingContext.font = 'bold ' + TITLE_SIZE + 'px Roboto, sans-serif';
       
       const align = opts.textAlign || p.LEFT;
       let xPos = 0;
@@ -322,20 +412,20 @@ function getAutoLabelColor(bgColor) {
       
       if (opts.title) {
           p.fill(TEXT_COLOR); 
-          p.textSize(opts.titleSize || 16); 
+          p.textSize(opts.titleSize || TITLE_SIZE); 
           p.textStyle(p.BOLD);
           p.drawingContext.fontWeight = 'bold';
           p.textAlign(align, p.BOTTOM); 
           p.text(opts.title, xPos, -30);
       }
       if (opts.subtitle) {
-          p.drawingContext.font = (opts.subtitleBold ? 'bold' : 'normal') + ' 13px Roboto, sans-serif';
-          p.fill(SUBTEXT_COLOR); p.textSize(opts.subtitleSize || 13); 
+          p.drawingContext.font = (opts.subtitleBold ? 'bold' : 'normal') + ' ' + SUBTITLE_SIZE + 'px Roboto, sans-serif';
+          p.fill(SUBTEXT_COLOR); p.textSize(opts.subtitleSize || SUBTITLE_SIZE); 
           p.textStyle(opts.subtitleBold ? p.BOLD : p.NORMAL);
           p.textAlign(align, p.BOTTOM); p.text(opts.subtitle, xPos, -12);
       }
       if (opts.source || opts.author) {
-          p.fill(SUBTEXT_COLOR); p.textSize(7); // Smaller font size for source/author
+          p.fill(SUBTEXT_COLOR); p.textSize(SOURCE_AUTHOR_SIZE);
           p.textAlign(p.LEFT, p.TOP);
           let footerText = "";
           if (opts.source) footerText += `Source: ${opts.source}`;
@@ -349,16 +439,16 @@ function getAutoLabelColor(bgColor) {
       
         // X-axis label
         if (opts.xLabel) {
-          p.drawingContext.font = 'normal 12px Roboto, sans-serif';
-          p.fill(TEXT_COLOR); p.textSize(12); p.textStyle(p.NORMAL);
+          p.drawingContext.font = 'normal ' + AXIS_LABEL_SIZE + 'px Roboto, sans-serif';
+          p.fill(TEXT_COLOR); p.textSize(AXIS_LABEL_SIZE); p.textStyle(p.NORMAL);
           p.textAlign(p.CENTER, p.BOTTOM);
           p.text(opts.xLabel, w/2, h + 40);
         }
       
         // Y-axis label
         if (opts.yLabel) {
-          p.drawingContext.font = 'normal 12px Roboto, sans-serif';
-          p.fill(TEXT_COLOR); p.textSize(12); p.textStyle(p.NORMAL);
+          p.drawingContext.font = 'normal ' + AXIS_LABEL_SIZE + 'px Roboto, sans-serif';
+          p.fill(TEXT_COLOR); p.textSize(AXIS_LABEL_SIZE); p.textStyle(p.NORMAL);
           p.push();
           p.translate(-30, h/2);
           p.rotate(-p.HALF_PI);
@@ -393,9 +483,9 @@ function getAutoLabelColor(bgColor) {
     }
     p.push();
     p.noStroke();
-    p.fill(0, 0, 0, 220);
+    p.fill(0, 0, 0, 220); // Using TOOLTIP_BG_COLOR concept
     p.rectMode(p.CORNER);
-    p.textSize(12);
+    p.textSize(TOOLTIP_TEXT_SIZE);
     p.textFont(DEFAULT_FONT);
     
     let maxWidth = 0;
@@ -403,19 +493,19 @@ function getAutoLabelColor(bgColor) {
       let w = p.textWidth(l); 
       if (w > maxWidth) maxWidth = w; 
     });
-    let boxW = maxWidth + 20; 
-    let boxH = h.content.length * 18 + 10;
+    let boxW = maxWidth + (TOOLTIP_PADDING * 2); 
+    let boxH = h.content.length * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING;
     
-    let tx = h.x + 15; 
-    let ty = h.y + 15;
-    if (tx + boxW > p.width) tx = h.x - boxW - 10;
-    if (ty + boxH > p.height) ty = h.y - boxH - 10;
+    let tx = h.x + TOOLTIP_OFFSET; 
+    let ty = h.y + TOOLTIP_OFFSET;
+    if (tx + boxW > p.width) tx = h.x - boxW - TOOLTIP_OFFSET;
+    if (ty + boxH > p.height) ty = h.y - boxH - TOOLTIP_OFFSET;
     
     p.translate(tx, ty); 
-    p.rect(0, 0, boxW, boxH, 4);
-    p.fill(255); 
+    p.rect(0, 0, boxW, boxH, TOOLTIP_BORDER_RADIUS);
+    p.fill(255); // TOOLTIP_TEXT_COLOR
     p.textAlign(p.LEFT, p.TOP);
-    h.content.forEach((l, i) => p.text(l, 10, 8 + i * 18));
+    h.content.forEach((l, i) => p.text(l, TOOLTIP_PADDING, 8 + i * TOOLTIP_LINE_HEIGHT));
     p.pop();
 
     // reset so next frame recomputes
@@ -483,7 +573,7 @@ function getAutoLabelColor(bgColor) {
     if (options.yLabel === undefined) options.yLabel = Array.isArray(valCols) ? valCols.join(', ') : valCols;
     if (options.title === undefined) options.title = df.columns.join(' vs. ');
     const leftMargin = options.yLabel ? 50 : 0;
-    const margin = options.margin || { top: 60, right: 40, bottom: 60, left: leftMargin };
+    const margin = options.margin || { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: DEFAULT_MARGIN.bottom, left: leftMargin };
     const w = (options.width || p.width) - margin.left - margin.right;
     const h = (options.height || p.height) - margin.top - margin.bottom;
 
@@ -508,23 +598,23 @@ function getAutoLabelColor(bgColor) {
 
     if (orient === 'horizontal') {
         const rowH = h / labels.length;
-        const barH = stacked ? (rowH * 0.8) : (rowH * 0.8 / valCols.length);
+        const barH = stacked ? (rowH * BAR_GAP_RATIO) : (rowH * BAR_GAP_RATIO / valCols.length);
         
         // Reserve space for labels on the left
         const barStartX = labelSpace;
         const barWidth = w - labelSpace;
         
         // Y-axis
-        p.stroke(150); p.strokeWeight(1.5); p.line(barStartX, 0, barStartX, h);
+        p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(barStartX, 0, barStartX, h);
         // X-axis with ticks
-        p.stroke(150); p.strokeWeight(1.5); p.line(barStartX, h, w, h);
-        p.stroke(200); p.strokeWeight(1);
-        for(let i = 0; i <= 5; i++) {
-          let xVal = barStartX + (barWidth / 5) * i;
-          p.line(xVal, h, xVal, h + 5);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.CENTER, p.TOP);
-          p.text(Math.round((maxVal / 5) * i), xVal, h + 8);
-          p.stroke(200);
+        p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(barStartX, h, w, h);
+        p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
+        for(let i = 0; i <= NUM_TICKS; i++) {
+          let xVal = barStartX + (barWidth / NUM_TICKS) * i;
+          p.line(xVal, h, xVal, h + TICK_LENGTH);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.CENTER, p.TOP);
+          p.text(Math.round((maxVal / NUM_TICKS) * i), xVal, h + 8);
+          p.stroke(TICK_COLOR);
         }
         
         labels.forEach((lbl, i) => {
@@ -556,7 +646,7 @@ function getAutoLabelColor(bgColor) {
                 p.rect(rectX, by, rectW, barH);
 
                 if (labelPos !== 'none') {
-                  p.textSize(10); p.textAlign(p.LEFT, p.CENTER);
+                  p.textSize(BAR_LABEL_SIZE); p.textAlign(p.LEFT, p.CENTER);
                   let txt = String(val);
                   let tw = p.textWidth(txt);
                   // Use label color protection for all label positions
@@ -580,24 +670,24 @@ function getAutoLabelColor(bgColor) {
                   }
                 }
             });
-            p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(12);
+            p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(AXIS_LABEL_SIZE);
             p.text(truncate(p, lbl, labelSpace - 10), barStartX - 10, i * rowH + rowH/2);
         });
     } else {
         const colW = w / labels.length;
-        const barW = stacked ? (colW * 0.8) : (colW * 0.8 / valCols.length);
+        const barW = stacked ? (colW * BAR_GAP_RATIO) : (colW * BAR_GAP_RATIO / valCols.length);
         
         // X-axis
-        p.stroke(150); p.strokeWeight(1.5); p.line(0, h, w, h);
+        p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, h, w, h);
         // Y-axis with ticks
-        p.stroke(150); p.strokeWeight(1.5); p.line(0, 0, 0, h);
-        p.stroke(200); p.strokeWeight(1);
-        for(let i = 0; i <= 5; i++) {
-          let yVal = h - (h / 5) * i;
-          p.line(-5, yVal, 0, yVal);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.RIGHT, p.CENTER);
-          p.text(Math.round((maxVal / 5) * i), -8, yVal);
-          p.stroke(200);
+        p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, 0, 0, h);
+        p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
+        for(let i = 0; i <= NUM_TICKS; i++) {
+          let yVal = h - (h / NUM_TICKS) * i;
+          p.line(-TICK_LENGTH, yVal, 0, yVal);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
+          p.text(Math.round((maxVal / NUM_TICKS) * i), -8, yVal);
+          p.stroke(TICK_COLOR);
         }
         labels.forEach((lbl, i) => {
             let xBase = i * colW + (colW * 0.1);
@@ -629,7 +719,7 @@ function getAutoLabelColor(bgColor) {
                 p.rect(bx, rectY, barW, rectH);
 
                 if (labelPos !== 'none') {
-                  p.textSize(10); p.textAlign(p.CENTER, p.BOTTOM);
+                  p.textSize(BAR_LABEL_SIZE); p.textAlign(p.CENTER, p.BOTTOM);
                   let txt = String(val);
                   // Use label color protection for all label positions
                   if (labelPos === 'inside') {
@@ -653,10 +743,10 @@ function getAutoLabelColor(bgColor) {
                 }
             });
             let centerX = i * colW + colW/2;
-            p.stroke(200); p.strokeWeight(1);
-            p.line(centerX, h, centerX, h + 5);
+            p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
+            p.line(centerX, h, centerX, h + TICK_LENGTH);
             p.noStroke();
-            p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(12);
+            p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(AXIS_LABEL_SIZE);
             p.text(truncate(p, lbl, colW), centerX, h + 10);
         });
     }
@@ -682,7 +772,7 @@ function getAutoLabelColor(bgColor) {
     // Layout & Config
     options.textAlign = options.textAlign || p.LEFT;
     
-    const margin = options.margin || { top: 60, right: 40, bottom: 40, left: 60 };
+    const margin = options.margin || { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: 40, left: DEFAULT_MARGIN.right };
     const w = (options.width || p.width) - margin.left - margin.right;
     const h = (options.height || p.height) - margin.top - margin.bottom;
     const cx = w/2; 
@@ -738,13 +828,13 @@ function getAutoLabelColor(bgColor) {
 
       // Draw Slice
       let colColor = p.color(c);
-      p.stroke(255); 
-      p.strokeWeight(options.lineSize || 2);
+      p.stroke(options.lineColor || PIE_STROKE_COLOR); 
+      p.strokeWeight(options.lineSize || PIE_STROKE_WEIGHT);
 
       if (isHover) {
         p.cursor(p.HAND);
         p.push();
-        p.scale(1.05); 
+        p.scale(PIE_HOVER_SCALE); 
         colColor.setAlpha(230);
         p.fill(colColor);
         p.arc(0, 0, r*2, r*2, startA, endA, p.PIE);
@@ -764,7 +854,7 @@ function getAutoLabelColor(bgColor) {
 
       // Donut Hole Drawing
       if (isDonut) {
-        let hole = options.holeRadius || 0.6;
+        let hole = options.holeRadius || DONUT_HOLE_RADIUS;
         p.fill(options.background || 255);
         p.noStroke();
         p.ellipse(0, 0, r*2*hole, r*2*hole);
@@ -776,7 +866,7 @@ function getAutoLabelColor(bgColor) {
           // Label anchor radius: further out if outside, centered in ring if donut
           let tr = (options.labelPos === 'outside') 
                    ? r + 30 
-                   : r * (isDonut ? (1 + (options.holeRadius || 0.6)) / 2 : 0.65); // Center of ring or 65% radius
+                   : r * (isDonut ? (1 + (options.holeRadius || DONUT_HOLE_RADIUS)) / 2 : 0.65); // Center of ring or 65% radius
                    
           let tx = Math.cos(mid) * tr;
           let ty = Math.sin(mid) * tr;
@@ -820,7 +910,7 @@ function getAutoLabelColor(bgColor) {
 
           // 2. Positioning & Alignment Fix
           p.noStroke(); 
-          p.textSize(options.labelSize || 11);
+          p.textSize(options.labelSize || PIE_LABEL_SIZE);
           
           if (options.labelPos === 'outside') {
               // Alignment fix: Anchor away from pie center
@@ -870,12 +960,12 @@ function getAutoLabelColor(bgColor) {
       const xCol = options.x || df.columns[0];
       const yCols = Array.isArray(options.y) ? options.y : [options.y || df.columns[1]];
       
-      const margin = options.margin || { top: 50, right: 40, bottom: 60, left: 80 };
+      const margin = options.margin || DEFAULT_MARGIN;
       const w = (options.width || p.width) - margin.left - margin.right;
       const h = (options.height || p.height) - margin.top - margin.bottom;
       
-      const ptSz = options.pointSize || 6;
-      const lnSz = options.lineSize || 2;
+      const ptSz = options.pointSize || DEFAULT_POINT_SIZE;
+      const lnSz = options.lineSize || DEFAULT_LINE_SIZE;
       const isHollow = options.pointStyle === 'hollow';
       const bgColor = options.background || 255;
       
@@ -903,11 +993,11 @@ function getAutoLabelColor(bgColor) {
       drawMeta(p, options, w, h);
       
       // Axes
-      p.stroke(150); p.strokeWeight(2);
+      p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
       p.line(0, h, w, h); // X
       p.line(0, 0, 0, h); // Y
       
-      p.stroke(200); p.strokeWeight(1);
+      p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
           function formatTick(val) {
             let num = Number(val);
             if (isNaN(num)) return String(val);
@@ -922,20 +1012,20 @@ function getAutoLabelColor(bgColor) {
             return num.toFixed(decimals);
           }
       // Y-Ticks
-        for(let i = 0; i <= 5; i++) {
-          let yVal = h - (h / 5) * i;
-          let labelVal = minV + ((maxV - minV) / 5) * i;
-          p.line(-5, yVal, 0, yVal);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.RIGHT, p.CENTER);
+        for(let i = 0; i <= NUM_TICKS; i++) {
+          let yVal = h - (h / NUM_TICKS) * i;
+          let labelVal = minV + ((maxV - minV) / NUM_TICKS) * i;
+          p.line(-TICK_LENGTH, yVal, 0, yVal);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
           p.text(formatTick(labelVal), -8, yVal);
-          p.stroke(200);
+          p.stroke(TICK_COLOR);
         }
       // X-Ticks
       const tickInterval = Math.max(1, Math.floor(xs.length / 8));
         for(let i = 0; i < xs.length; i += tickInterval) {
           let xVal = p.map(i, 0, xs.length-1, 0, w);
-          p.stroke(200); p.line(xVal, h, xVal, h + 5);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.CENTER, p.TOP);
+          p.stroke(TICK_COLOR); p.line(xVal, h, xVal, h + TICK_LENGTH);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.CENTER, p.TOP);
           p.text(formatTick(xs[i]), xVal, h + 8);
         }
 
@@ -971,14 +1061,14 @@ function getAutoLabelColor(bgColor) {
                   let isClicked = isHover && p.mouseIsPressed;
 
                   // 1. Draw Dot
-                  p.strokeWeight(isHollow ? 2 : 0);
+                  p.strokeWeight(isHollow ? POINT_STROKE_WEIGHT : 0);
                   if (isHollow) { p.stroke(c); p.fill(bgColor); } 
                   else { p.noStroke(); p.fill(c); }
 
                   if (isHover) {
                       p.cursor(p.HAND);
-                      if(isHollow) p.strokeWeight(3);
-                      else { let hc = p.color(c); hc.setAlpha(200); p.fill(hc); p.circle(px, py, ptSz * 1.5); }
+                      if(isHollow) p.strokeWeight(POINT_HOVER_STROKE_WEIGHT);
+                      else { let hc = p.color(c); hc.setAlpha(HOVER_ALPHA); p.fill(hc); p.circle(px, py, ptSz * POINT_HOVER_SCALE); }
                       
                       // Only show tooltip if NOT showing static labels
                       if (showVals !== true) {
@@ -1001,11 +1091,11 @@ function getAutoLabelColor(bgColor) {
                       // Use label color protection: auto choose black/white for contrast with point color
                       let labelBg = c;
                       p.fill(getAutoLabelColor(labelBg));
-                      p.textSize(11);
+                      p.textSize(DATA_LABEL_SIZE);
                       p.textAlign(p.CENTER, p.CENTER);
 
                       let txt = String(val);
-                      let offset = ptSz/2 + 10;
+                      let offset = ptSz/2 + LABEL_OFFSET;
                       let ly = py - offset; // Default: Top
 
                       if (lblPos === 'bottom') {
@@ -1035,7 +1125,7 @@ function getAutoLabelColor(bgColor) {
       const xCol = options.x || df.columns[0];
       const yCol = options.y || df.columns[1];
       
-      const margin = options.margin || { top: 50, right: 40, bottom: 60, left: 80 };
+      const margin = options.margin || DEFAULT_MARGIN;
       const w = (options.width || p.width) - margin.left - margin.right;
       const h = (options.height || p.height) - margin.top - margin.bottom;
 
@@ -1054,9 +1144,9 @@ function getAutoLabelColor(bgColor) {
           minS = Math.min(...sizes);
           maxS = Math.max(...sizes);
       }
-      const minPtSz = options.minSize || 5;
-      const maxPtSz = options.maxSize || 20;
-      const fixedPtSz = options.pointSize || 8;
+      const minPtSz = options.minSize || MIN_POINT_SIZE;
+      const maxPtSz = options.maxSize || MAX_POINT_SIZE;
+      const fixedPtSz = options.pointSize || DEFAULT_POINT_SIZE_SCATTER;
 
       // Variable Color Logic
       let colors = [];
@@ -1103,7 +1193,7 @@ function getAutoLabelColor(bgColor) {
       drawMeta(p, options, w, h);
       
       // --- Axes ---
-      p.stroke(150); p.strokeWeight(2);
+      p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
       p.line(0, h, w, h); // X
       p.line(0, 0, 0, h); // Y
       
@@ -1119,30 +1209,30 @@ function getAutoLabelColor(bgColor) {
       }
 
       // X-Ticks
-      p.stroke(200); p.strokeWeight(1);
-      for(let i = 0; i <= 5; i++) {
-        let xVal = (w / 5) * i;
-        let labelVal = minX + ((maxX - minX) / 5) * i;
-        p.line(xVal, h, xVal, h + 5);
-        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.CENTER, p.TOP);
+      p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
+      for(let i = 0; i <= NUM_TICKS; i++) {
+        let xVal = (w / NUM_TICKS) * i;
+        let labelVal = minX + ((maxX - minX) / NUM_TICKS) * i;
+        p.line(xVal, h, xVal, h + TICK_LENGTH);
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.CENTER, p.TOP);
         p.text(formatTick(labelVal), xVal, h + 8);
-        p.stroke(200);
+        p.stroke(TICK_COLOR);
       }
       
       // Y-Ticks
-      for(let i = 0; i <= 5; i++) {
-        let yVal = h - (h / 5) * i;
-        let labelVal = minY + ((maxY - minY) / 5) * i;
-        p.stroke(200); p.line(-5, yVal, 0, yVal);
-        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); p.textAlign(p.RIGHT, p.CENTER);
+      for(let i = 0; i <= NUM_TICKS; i++) {
+        let yVal = h - (h / NUM_TICKS) * i;
+        let labelVal = minY + ((maxY - minY) / NUM_TICKS) * i;
+        p.stroke(TICK_COLOR); p.line(-TICK_LENGTH, yVal, 0, yVal);
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
         p.text(formatTick(labelVal), -8, yVal);
-        p.stroke(200);
+        p.stroke(TICK_COLOR);
       }
 
       // --- Connect Lines  ---
       if (options.connect) {
           let lineC = options.lineColor || palette[0];
-          p.noFill(); p.stroke(lineC); p.strokeWeight(options.lineSize || 2);
+          p.noFill(); p.stroke(lineC); p.strokeWeight(options.lineSize || DEFAULT_LINE_SIZE);
           p.beginShape();
           // Note: connecting assumes order in data array. 
           // If you need sorted, sort the DataFrame before passing.
@@ -1194,7 +1284,7 @@ function getAutoLabelColor(bgColor) {
           let isClicked = isHover && p.mouseIsPressed;
 
           // Style Setup
-          p.strokeWeight(isHollow ? 2 : 0);
+          p.strokeWeight(isHollow ? POINT_STROKE_WEIGHT : 0);
           if (isHollow) {
               p.stroke(ptColor); 
               p.fill(bgColor); 
@@ -1206,12 +1296,12 @@ function getAutoLabelColor(bgColor) {
           // Hover State
           if (isHover) {
                p.cursor(p.HAND);
-               if(isHollow) p.strokeWeight(3);
+               if(isHollow) p.strokeWeight(POINT_HOVER_STROKE_WEIGHT);
                else { 
                    let hc = p.color(ptColor); 
-                   hc.setAlpha(200); 
+                   hc.setAlpha(HOVER_ALPHA); 
                    p.fill(hc); 
-                   p.circle(cx, cy, r * 1.5); // Bloom effect
+                   p.circle(cx, cy, r * POINT_HOVER_SCALE); // Bloom effect
                }
                
                // Tooltip (only if values not static)
@@ -1237,12 +1327,12 @@ function getAutoLabelColor(bgColor) {
           if (drawLabel) {
               p.noStroke();
               p.fill(TEXT_COLOR);
-              p.textSize(10);
+              p.textSize(DATA_LABEL_SIZE);
               p.textAlign(p.CENTER, p.CENTER);
               
               let txt = sizeCol ? String(sizes[i]) : String(ys[i]); 
               
-              let offset = r/2 + 8;
+              let offset = r/2 + (LABEL_OFFSET - 2);
               let ly = cy - offset;
 
               if (lblPos === 'bottom') ly = cy + offset;
@@ -1268,7 +1358,7 @@ p5.prototype.hist = function(data, options = {}) {
     if (vals.length === 0) return;
     
     // Determine bounds and optimal bin size (Natural Bins)
-    const requestedBins = options.bins || 10;
+    const requestedBins = options.bins || HIST_DEFAULT_BINS;
     const minRaw = Math.min(...vals);
     const maxRaw = Math.max(...vals);
     const span = maxRaw - minRaw;
@@ -1303,7 +1393,7 @@ p5.prototype.hist = function(data, options = {}) {
     
     // --- Layout and Scaling ---
     const maxCount = Math.max(...counts);
-    const margin = options.margin || { top: 60, right: 40, bottom: 60, left: 80 };
+    const margin = options.margin || DEFAULT_MARGIN;
     const w = (options.width || p.width) - margin.left - margin.right;
     const h = (options.height || p.height) - margin.top - margin.bottom;
     
@@ -1318,7 +1408,7 @@ p5.prototype.hist = function(data, options = {}) {
     // 2. Set Default Border Color for Reproducible Contrast
     const defaultContrastColor = (bgLuminance > 128) ? p.color('#333333') : p.color('#CCCCCC');
     
-    const borderWeight = options.borderWeight || 1;
+    const borderWeight = options.borderWeight || HIST_BORDER_WEIGHT;
     const borderColor = options.borderColor || defaultContrastColor; 
     const color = getColor(p, 0, options.palette);
 
@@ -1343,27 +1433,27 @@ p5.prototype.hist = function(data, options = {}) {
     p.textFont(options.font || DEFAULT_FONT);
     
     // X-axis (Base line)
-    p.stroke(150); p.strokeWeight(1.5); p.line(0, h, w, h);
+    p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, h, w, h);
     
     // Y-axis (Vertical line)
     p.line(0, 0, 0, h); 
     
     // Y-ticks
-    p.stroke(200); p.strokeWeight(1);
-    for(let i = 0; i <= 5; i++) {
-        let yVal = h - (h / 5) * i;
-        let labelVal = (maxAxisVal / 5) * i;
-        p.line(-5, yVal, 0, yVal);
+    p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
+    for(let i = 0; i <= NUM_TICKS; i++) {
+        let yVal = h - (h / NUM_TICKS) * i;
+        let labelVal = (maxAxisVal / NUM_TICKS) * i;
+        p.line(-TICK_LENGTH, yVal, 0, yVal);
         
         // Ensure Y-axis labels have no stroke
-        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(10); 
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); 
         p.textAlign(p.RIGHT, p.CENTER);
         p.text(labelVal, -8, yVal);
-        p.stroke(200);
+        p.stroke(TICK_COLOR);
     }
     
     // X-Ticks (At Edges)
-    p.fill(TEXT_COLOR); p.textSize(10);
+    p.fill(TEXT_COLOR); p.textSize(TICK_LABEL_SIZE);
     const TEXT_BOX_WIDTH = 30; // Define text box width for 4-argument p.text()
     const TICK_LABEL_PADDING = 3; 
     
@@ -1378,8 +1468,8 @@ p5.prototype.hist = function(data, options = {}) {
     binEdges.forEach((edgeValue, i) => {
         const xPos = i * barW; 
         
-        p.stroke(200); 
-        p.line(xPos, h, xPos, h + 5);
+        p.stroke(TICK_COLOR); 
+        p.line(xPos, h, xPos, h + TICK_LENGTH);
 
         // Decide if we should show the label based on the controlled decimation
         const showLabel = (i % labelEvery === 0 || i === finalBins || i === 0);
@@ -1473,7 +1563,7 @@ p5.prototype.hist = function(data, options = {}) {
             p.noStroke(); 
             p.fill(TEXT_COLOR); 
             p.textAlign(p.CENTER, p.BOTTOM); 
-            p.textSize(10);
+            p.textSize(HIST_LABEL_SIZE);
             
             p.text(count, rectX + barW / 2, rectY - 2); 
         }
@@ -1508,8 +1598,8 @@ p5.prototype.hist = function(data, options = {}) {
       
       // Auto-enable searchable and pagination for tables with more than 10 rows
       const totalRowCount = df.rows.length;
-      const searchable = options.searchable !== undefined ? options.searchable : (totalRowCount > 10);
-      const pagination = options.pagination !== undefined ? options.pagination : (totalRowCount > 10);
+      const searchable = options.searchable !== undefined ? options.searchable : (totalRowCount > TABLE_MAX_ROWS);
+      const pagination = options.pagination !== undefined ? options.pagination : (totalRowCount > TABLE_MAX_ROWS);
       
       // Initialize pagination state if not exists
       if (!p.chart._tableStates) p.chart._tableStates = {};
@@ -1522,7 +1612,7 @@ p5.prototype.hist = function(data, options = {}) {
       const x = options.x || 20; 
       const y = options.y || 80;
       const w = options.width || p.width - 40;
-      const rowH = 30;
+      const rowH = TABLE_ROW_HEIGHT;
       
       // Only create search input if searchable is true
       if (searchable) {
@@ -1533,8 +1623,8 @@ p5.prototype.hist = function(data, options = {}) {
               inp.attribute('placeholder', 'Search...');
               inp.style('padding', '4px 8px');
               inp.style('font-family', 'sans-serif');
-              inp.style('font-size', '12px');
-              inp.style('width', '150px');
+              inp.style('font-size', AXIS_LABEL_SIZE + 'px');
+              inp.style('width', TABLE_SEARCH_WIDTH + 'px');
               inp.style('border', '1px solid #ccc');
               inp.style('border-radius', '3px');
               p.chart.inputs[id] = inp;
@@ -1547,7 +1637,7 @@ p5.prototype.hist = function(data, options = {}) {
       if (search) rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(search)));
       
       // Pagination calculations
-      const maxRows = options.maxRows || 10;
+      const maxRows = options.maxRows || TABLE_MAX_ROWS;
       const totalPages = Math.ceil(rows.length / maxRows);
       const currentPage = Math.min(state.currentPage, totalPages - 1);
       state.currentPage = Math.max(0, currentPage);
@@ -1583,18 +1673,18 @@ p5.prototype.hist = function(data, options = {}) {
       const tooltipMsg = options.tooltip;
       
       // Color options with defaults
-      const headerColor = options.headerColor || p.color(240);
-      const rowColor1 = options.rowColor1 || p.color(255);
-      const rowColor2 = options.rowColor2 || p.color(250);
-      const hoverColor = options.hoverColor || p.color(150, 200, 255);
-      const borderColor = options.borderColor || p.color(200);
+      const headerColor = options.headerColor || p.color(TABLE_HEADER_COLOR);
+      const rowColor1 = options.rowColor1 || p.color(TABLE_ROW_COLOR_1);
+      const rowColor2 = options.rowColor2 || p.color(TABLE_ROW_COLOR_2);
+      const hoverColor = options.hoverColor || p.color(TABLE_HOVER_COLOR);
+      const borderColor = options.borderColor || p.color(TABLE_BORDER_COLOR);
       
       // Draw title (without page count)
       const title = options.title || 'Data Table';
       p.push();
       p.translate(x, y - 30);
       p.fill(TEXT_COLOR); 
-      p.textSize(16); 
+      p.textSize(TITLE_SIZE); 
       p.textStyle(p.BOLD);
       p.textAlign(p.LEFT, p.BOTTOM); 
       p.textFont(DEFAULT_FONT);
@@ -1607,6 +1697,7 @@ p5.prototype.hist = function(data, options = {}) {
         // Draw header row
         p.fill(headerColor); p.noStroke(); p.rect(0, 0, w, rowH);
         p.fill(0); p.textAlign(p.LEFT, p.CENTER); p.textStyle(p.NORMAL); p.textFont(DEFAULT_FONT);
+        p.textSize(TABLE_TEXT_SIZE);
         cols.forEach((c, i) => {
             // Highlight header on hover
             if (hoveredCell && hoveredCell.row === 0 && hoveredCell.col === i) {
@@ -1682,10 +1773,10 @@ p5.prototype.hist = function(data, options = {}) {
           
           p.push();
           p.textFont(DEFAULT_FONT);
-          p.textSize(12);
+          p.textSize(TABLE_TEXT_SIZE);
           
           // Arrow button dimensions
-          const arrowSize = 24;
+          const arrowSize = TABLE_ARROW_SIZE;
           const spacing = 5;
           const pageTextWidth = 50;
           
@@ -1790,7 +1881,7 @@ p5.prototype.hist = function(data, options = {}) {
           p.chart._mapState = {
               centerLat: options.centerLat || autoCenterLat,
               centerLon: options.centerLon || autoCenterLon,
-              zoom: options.zoom || 4,
+              zoom: options.zoom || MAP_DEFAULT_ZOOM,
               tiles: {},
               hoveredPoint: null
           };
@@ -1798,8 +1889,8 @@ p5.prototype.hist = function(data, options = {}) {
       const state = p.chart._mapState;
       
       // Style options
-      const pointColor = options.pointColor || p.color(214, 39, 40);
-      const pointSize = options.pointSize || 12;
+      const pointColor = options.pointColor || p.color(MAP_POINT_COLOR);
+      const pointSize = options.pointSize || MAP_POINT_SIZE;
       const showLabels = options.showLabels !== false;
       const showControls = options.showControls !== false;
       
@@ -1905,15 +1996,15 @@ p5.prototype.hist = function(data, options = {}) {
                   state.hoveredPoint = { row, pos, labelCol, valueCol };
               }
               
-              p.fill(pointColor.levels[0], pointColor.levels[1], pointColor.levels[2], isHovered ? 255 : 200);
-              p.ellipse(pos.x, pos.y, isHovered ? pointSize * 1.3 : pointSize, isHovered ? pointSize * 1.3 : pointSize);
+              p.fill(pointColor.levels[0], pointColor.levels[1], pointColor.levels[2], isHovered ? 255 : HOVER_ALPHA);
+              p.ellipse(pos.x, pos.y, isHovered ? pointSize * MAP_POINT_HOVER_SCALE : pointSize, isHovered ? pointSize * MAP_POINT_HOVER_SCALE : pointSize);
               p.fill(255);
               p.ellipse(pos.x, pos.y, isHovered ? pointSize * 0.5 : pointSize * 0.33, isHovered ? pointSize * 0.5 : pointSize * 0.33);
               
               if (showLabels && row[labelCol]) {
                   p.fill(0);
                   p.textAlign(p.CENTER, p.BOTTOM);
-                  p.textSize(11);
+                  p.textSize(MAP_LABEL_SIZE);
                   p.text(row[labelCol], pos.x, pos.y - (isHovered ? pointSize * 0.6 : pointSize * 0.5));
               }
           }
@@ -1929,23 +2020,23 @@ p5.prototype.hist = function(data, options = {}) {
           if (h.row[valueCol]) lines.push(`${valueCol}: ${Number(h.row[valueCol]).toLocaleString()}`);
           lines.push(`Lat: ${Number(h.row[latCol]).toFixed(4)}, Lon: ${Number(h.row[lonCol]).toFixed(4)}`);
           
-          p.textSize(12);
+          p.textSize(TOOLTIP_TEXT_SIZE);
           let maxWidth = 0;
           lines.forEach(l => { maxWidth = Math.max(maxWidth, p.textWidth(l)); });
-          let boxW = maxWidth + 20;
-          let boxH = lines.length * 18 + 10;
+          let boxW = maxWidth + (TOOLTIP_PADDING * 2);
+          let boxH = lines.length * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING;
           
-          let tx = p.mouseX + 15;
-          let ty = p.mouseY + 15;
-          if (tx + boxW > p.width) tx = p.mouseX - boxW - 10;
-          if (ty + boxH > p.height) ty = p.mouseY - boxH - 10;
+          let tx = p.mouseX + TOOLTIP_OFFSET;
+          let ty = p.mouseY + TOOLTIP_OFFSET;
+          if (tx + boxW > p.width) tx = p.mouseX - boxW - TOOLTIP_OFFSET;
+          if (ty + boxH > p.height) ty = p.mouseY - boxH - TOOLTIP_OFFSET;
           
           p.noStroke();
           p.fill(0, 0, 0, 220);
-          p.rect(tx, ty, boxW, boxH, 4);
+          p.rect(tx, ty, boxW, boxH, TOOLTIP_BORDER_RADIUS);
           p.fill(255);
           p.textAlign(p.LEFT, p.TOP);
-          lines.forEach((l, i) => p.text(l, tx + 10, ty + 8 + i * 18));
+          lines.forEach((l, i) => p.text(l, tx + TOOLTIP_PADDING, ty + 8 + i * TOOLTIP_LINE_HEIGHT));
       } else {
           p.cursor(p.ARROW);
       }
@@ -1957,7 +2048,7 @@ p5.prototype.hist = function(data, options = {}) {
           p.rect(10, 10, 150, 78, 5);
           p.fill(0);
           p.textAlign(p.LEFT, p.TOP);
-          p.textSize(12);
+          p.textSize(AXIS_LABEL_SIZE);
           p.text('Arrow keys: Pan', 15, 15);
           p.text('+/- keys: Zoom', 15, 32);
           p.text('Scroll: Zoom', 15, 49);
@@ -1968,7 +2059,7 @@ p5.prototype.hist = function(data, options = {}) {
       
       // Handle keyboard input for map navigation
       p._handleMapKeys = function() {
-          let panAmount = 0.5;
+          let panAmount = MAP_PAN_AMOUNT;
           if (p.keyIsDown(p.LEFT_ARROW)) state.centerLon -= panAmount;
           if (p.keyIsDown(p.RIGHT_ARROW)) state.centerLon += panAmount;
           if (p.keyIsDown(p.UP_ARROW)) state.centerLat += panAmount;
@@ -2023,5 +2114,5 @@ p5.prototype.hist = function(data, options = {}) {
       // Call navigation handler
       if (p._handleMapKeys) p._handleMapKeys();
   };
-    
+
 })();
