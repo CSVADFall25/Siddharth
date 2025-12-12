@@ -56,7 +56,7 @@ function draw() {
     // ---------------------------
     // 5. STYLING & PALETTE
     // ---------------------------
-    background: "#000000",  // Chart background color
+    background: "#FFFFFF",  // Chart background color
     palette: ["#FFD966", "#395B64", "#2C3333"], // Custom colors
     showGrid: true,         // Show background grid?
     gridColor: "#cccccc",   // Grid line color

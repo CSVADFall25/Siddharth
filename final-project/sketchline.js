@@ -43,8 +43,8 @@ function draw() {
     // ---------------------------
     // 3. GEOMETRY & STYLING
     // ---------------------------
-    pointSize: 10,          // Diameter of the dots in pixels
-    lineSize: 3,            // Thickness of the connecting lines
+    pointSize: 25,          // Diameter of the dots in pixels
+    lineSize: 10,            // Thickness of the connecting lines
     dots: true,             // Draw dots at data points? (true or false)
     pointStyle: "hollow",   // Dot style: "filled" (solid) or "hollow" (ring with background color center)
     palette: ["#FF5733", "#33C1FF", "#FFC300"], // Color palette array (hex codes)
