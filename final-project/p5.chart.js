@@ -39,8 +39,15 @@ function getAutoLabelColor(bgColor) {
   // ====== COLOR PALETTE ======
   // Default color palette for all charts
   p5.prototype.chart.palette = [
-    "#395B64", "#A5C9CA", "#E7F6F2", "#2C3333", 
-    "#FF8B8B", "#EB4747", "#ABC9FF", "#FFD966"
+    // Warm pastels    
+    "#D4A373", // sand
+    "#E76F51", // coral
+    "#F4A261", // apricot
+    "#E9C46A", // honey
+    "#F28482", // soft red
+    "#E5989B", // dusty rose
+    "#B5838D", // mauve
+    "#F7B267"  // peach
   ];
   
   // ====== TYPOGRAPHY ======
@@ -58,9 +65,9 @@ function getAutoLabelColor(bgColor) {
   const DEFAULT_MARGIN = { top: 60, right: 40, bottom: 60, left: 80 };
   
   // ====== AXES & GRIDLINES ======
-  const AXIS_COLOR = "#969696"; // 150 gray
+  const AXIS_COLOR = "#333333"; // default: dark gray ("light black")
   const AXIS_WEIGHT = 2;
-  const TICK_COLOR = "#C8C8C8"; // 200 gray
+  const TICK_COLOR = "#333333"; // default: dark gray ("light black")
   const TICK_WEIGHT = 1;
   const TICK_LENGTH = 5;
   const NUM_TICKS = 5;
@@ -849,12 +856,31 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
   }
 
   // Global hover state for ALL charts in this sketch
-  p5.prototype.chart.hoverState = { active: false, x: 0, y: 0, content: [] };
+  // tooltipScale: multiplier (e.g. 0.8 = smaller tooltips)
+  // tooltipTextSize: absolute px override (e.g. 10)
+  // tooltipFont: optional font-family override
+  p5.prototype.chart.hoverState = {
+    active: false,
+    x: 0,
+    y: 0,
+    content: [],
+    tooltipScale: undefined,
+    tooltipTextSize: undefined,
+    tooltipFont: undefined
+  };
 
   // Helper for rect hover in *global* coordinates
-  function rectHover(p, gx, gy, w, h, content) {
+  function rectHover(p, gx, gy, w, h, content, options) {
     if (p.mouseX >= gx && p.mouseX <= gx + w && p.mouseY >= gy && p.mouseY <= gy + h) {
-      p.chart.hoverState = { active: true, x: p.mouseX, y: p.mouseY, content: content };
+      p.chart.hoverState = {
+        active: true,
+        x: p.mouseX,
+        y: p.mouseY,
+        content: content,
+        tooltipScale: options && options.tooltipScale,
+        tooltipTextSize: options && options.tooltipTextSize,
+        tooltipFont: options && options.tooltipFont
+      };
       p.cursor(p.HAND);
       return true;
     }
@@ -874,15 +900,37 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     p.fill(0, 0, 0, 220); // Using TOOLTIP_BG_COLOR concept
     p.rectMode(p.CORNER);
 
-    const canvasScale = clampNumber(Math.min(p.width, p.height) / 700, 0.6, 1);
-    const tipTextSize = Math.round(TOOLTIP_TEXT_SIZE * canvasScale);
-    const tipPad = Math.round(TOOLTIP_PADDING * canvasScale);
-    const tipLineH = Math.round(TOOLTIP_LINE_HEIGHT * canvasScale);
-    const tipOffset = Math.round(TOOLTIP_OFFSET * canvasScale);
-    const tipRadius = Math.round(TOOLTIP_BORDER_RADIUS * canvasScale);
+    // Use displayed (CSS) canvas size so tooltips shrink/grow with the chart.
+    const metrics = getCanvasDisplayMetrics(p);
+    const displayW = metrics.width || p.width;
+    const displayH = metrics.height || p.height;
+    const minDim = Math.max(1, Math.min(displayW, displayH));
+    const BASE_MIN_DIM = 400;
+    const responsiveScale = clampNumber(minDim / BASE_MIN_DIM, 0.6, 1);
+
+    // Optional per-chart overrides passed through hoverState
+    // - tooltipScale: multiplier on top of responsiveScale
+    // - tooltipTextSize: absolute text size in px
+    let effectiveScale = responsiveScale;
+    const scaleMult = (h.tooltipScale !== undefined) ? Number(h.tooltipScale) : 1;
+    if (Number.isFinite(scaleMult) && scaleMult !== 1) {
+      effectiveScale = clampNumber(effectiveScale * scaleMult, 0.4, 2);
+    }
+    if (h.tooltipTextSize !== undefined) {
+      const forcedPx = clampNumber(Number(h.tooltipTextSize), 6, 32);
+      if (Number.isFinite(forcedPx)) {
+        effectiveScale = forcedPx / TOOLTIP_TEXT_SIZE;
+      }
+    }
+
+    const tipTextSize = Math.round(TOOLTIP_TEXT_SIZE * effectiveScale);
+    const tipPad = Math.round(TOOLTIP_PADDING * effectiveScale);
+    const tipLineH = Math.round(TOOLTIP_LINE_HEIGHT * effectiveScale);
+    const tipOffset = Math.round(TOOLTIP_OFFSET * effectiveScale);
+    const tipRadius = Math.round(TOOLTIP_BORDER_RADIUS * effectiveScale);
 
     p.textSize(tipTextSize);
-    p.textFont(DEFAULT_FONT);
+    p.textFont(h.tooltipFont || DEFAULT_FONT);
     
     let maxWidth = 0;
     h.content.forEach(l => { 
@@ -901,7 +949,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     p.rect(0, 0, boxW, boxH, tipRadius);
     p.fill(255); // TOOLTIP_TEXT_COLOR
     p.textAlign(p.LEFT, p.TOP);
-    h.content.forEach((l, i) => p.text(l, tipPad, Math.round(8 * canvasScale) + i * tipLineH));
+    h.content.forEach((l, i) => p.text(l, tipPad, Math.round(8 * effectiveScale) + i * tipLineH));
     p.pop();
 
     // reset so next frame recomputes
@@ -1010,11 +1058,34 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     });
     if (maxVal === 0) maxVal = 1;
 
+    // Use "nice" axis bounds so tick labels are evenly spaced units.
+    const targetTicks = (options.numTicks !== undefined)
+      ? options.numTicks
+      : ((options.tickCount !== undefined) ? options.tickCount : NUM_TICKS);
+    const valueAxis = niceAxisBounds(0, maxVal, targetTicks);
+
+    function formatBarTick(val) {
+      const num = Number(val);
+      if (!isFinite(num)) return String(val);
+      // Show integers as integers, otherwise keep a minimal number of decimals.
+      if (Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num));
+      const absVal = Math.abs(num);
+      if (absVal >= 1000) return (num / 1000).toFixed(1) + 'k';
+      let decimals = 0;
+      let t = absVal;
+      while (t !== 0 && t < 1 && decimals < 6) { t *= 10; decimals++; }
+      return num.toFixed(Math.min(Math.max(decimals, 1), 3));
+    }
+
     if (options.background !== undefined) {
       p.noStroke();
       p.fill(options.background);
       p.rect(0, 0, w, h);
     }
+
+    const showGrid = (options.showGrid === true) || (options.grid === true);
+    const gridColor = options.gridColor || options.gridColour || TICK_COLOR;
+    const gridWeight = (options.gridWeight !== undefined) ? options.gridWeight : TICK_WEIGHT;
 
     if (orient === 'horizontal') {
         const rowH = h / labels.length;
@@ -1023,19 +1094,31 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         // Reserve space for labels on the left
         const barStartX = labelSpace;
         const barWidth = w - labelSpace;
+
+        // Optional grid (vertical lines at numeric ticks)
+        if (showGrid) {
+          p.push();
+          p.stroke(gridColor);
+          p.strokeWeight(gridWeight);
+          valueAxis.ticks.forEach(tickVal => {
+            let xVal = barStartX + p.map(tickVal, valueAxis.min, valueAxis.max, 0, barWidth);
+            p.line(xVal, 0, xVal, h);
+          });
+          p.pop();
+        }
         
         // Y-axis
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(barStartX, 0, barStartX, h);
         // X-axis with ticks
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(barStartX, h, w, h);
         p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
-        for(let i = 0; i <= NUM_TICKS; i++) {
-          let xVal = barStartX + (barWidth / NUM_TICKS) * i;
+        valueAxis.ticks.forEach(tickVal => {
+          let xVal = barStartX + p.map(tickVal, valueAxis.min, valueAxis.max, 0, barWidth);
           p.line(xVal, h, xVal, h + tickLen);
           p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.CENTER, p.TOP);
-          p.text(Math.round((maxVal / NUM_TICKS) * i), xVal, h + tickTextOffset);
+          p.text(formatBarTick(tickVal), xVal, h + tickTextOffset);
           p.stroke(TICK_COLOR);
-        }
+        });
         
         labels.forEach((lbl, i) => {
             let yBase = i * rowH + (rowH * 0.1);
@@ -1050,7 +1133,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 }
                 
                 let val = Number(rawVal);
-                let rectW = p.map(val, 0, maxVal, 0, barWidth);
+                let rectW = p.map(val, valueAxis.min, valueAxis.max, 0, barWidth);
                 let rectX = barStartX + (stacked ? xStack : 0);
                 if (stacked) xStack += rectW;
                 let by = stacked ? yBase : yBase + (j * barH);
@@ -1066,7 +1149,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 const gx = margin.left + rectX;
                 const gy = margin.top + by;
 
-                if (rectHover(p, gx, gy, rectW, barH, [`${lbl}`, `${col}: ${val}`])) {
+                if (rectHover(p, gx, gy, rectW, barH, [`${lbl}`, `${col}: ${val}`], options)) {
                   let hoverColor = p.color(c);
                   hoverColor.setAlpha(200);
                   p.fill(hoverColor);
@@ -1101,22 +1184,39 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(axisLabelSize);
             p.text(truncate(p, lbl, labelSpace - 10), barStartX - 10, i * rowH + rowH/2);
         });
+
+          // Draw axis lines over the data
+          p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
+          p.line(barStartX, 0, barStartX, h);
+          p.line(barStartX, h, w, h);
     } else {
         const colW = w / labels.length;
         const barW = stacked ? (colW * BAR_GAP_RATIO) : (colW * BAR_GAP_RATIO / valCols.length);
         
+        // Optional grid (horizontal lines at numeric ticks)
+        if (showGrid) {
+          p.push();
+          p.stroke(gridColor);
+          p.strokeWeight(gridWeight);
+          valueAxis.ticks.forEach(tickVal => {
+            let yVal = p.map(tickVal, valueAxis.min, valueAxis.max, h, 0);
+            p.line(0, yVal, w, yVal);
+          });
+          p.pop();
+        }
+
         // X-axis
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, h, w, h);
         // Y-axis with ticks
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, 0, 0, h);
         p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
-        for(let i = 0; i <= NUM_TICKS; i++) {
-          let yVal = h - (h / NUM_TICKS) * i;
+        valueAxis.ticks.forEach(tickVal => {
+          let yVal = p.map(tickVal, valueAxis.min, valueAxis.max, h, 0);
           p.line(-tickLen, yVal, 0, yVal);
           p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.RIGHT, p.CENTER);
-          p.text(Math.round((maxVal / NUM_TICKS) * i), -8, yVal);
+          p.text(formatBarTick(tickVal), -8, yVal);
           p.stroke(TICK_COLOR);
-        }
+        });
         labels.forEach((lbl, i) => {
             let xBase = i * colW + (colW * 0.1);
             let yStack = h;
@@ -1130,7 +1230,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 }
                 
                 let val = Number(rawVal);
-                let rectH = p.map(val, 0, maxVal, 0, h);
+                let rectH = p.map(val, valueAxis.min, valueAxis.max, 0, h);
                 let rectY = stacked ? (yStack - rectH) : (h - rectH);
                 if (stacked) yStack -= rectH;
                 let bx = stacked ? xBase : xBase + (j * barW);
@@ -1146,7 +1246,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 const gx = margin.left + bx;
                 const gy = margin.top + rectY;
 
-                if (rectHover(p, gx, gy, barW, rectH, [`${lbl}`, `${col}: ${val}`])) {
+                if (rectHover(p, gx, gy, barW, rectH, [`${lbl}`, `${col}: ${val}`], options)) {
                   let hoverColor = p.color(c);
                   hoverColor.setAlpha(200);
                   p.fill(hoverColor);
@@ -1185,6 +1285,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(axisLabelSize);
             p.text(truncate(p, lbl, colW), centerX, h + scalePx(p, options, 10, 8, 14));
         });
+
+          // Draw axis lines over the data
+          p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
+          p.line(0, h, w, h);
+          p.line(0, 0, 0, h);
     }
     p.pop();
   };
@@ -1373,10 +1478,13 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         
         let pct = Math.round((v/total)*100);
         p.chart.hoverState = { 
-            active: true, 
-            x: p.mouseX, 
-            y: p.mouseY, 
-            content: [`${labels[i]}`, `${v} (${pct}%)`] 
+          active: true, 
+          x: p.mouseX, 
+          y: p.mouseY, 
+          content: [`${labels[i]}`, `${v} (${pct}%)`],
+          tooltipScale: options && options.tooltipScale,
+          tooltipTextSize: options && options.tooltipTextSize,
+          tooltipFont: options && options.tooltipFont
         };
       } else {
         p.fill(colColor);
@@ -1673,7 +1781,15 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                       
                       // Only show tooltip if NOT showing static labels
                       if (showVals !== true) {
-                           p.chart.hoverState = { active: true, x: p.mouseX, y: p.mouseY, content: [`${col}`, `${val}`] };
+                           p.chart.hoverState = {
+                             active: true,
+                             x: p.mouseX,
+                             y: p.mouseY,
+                             content: [`${col}`, `${val}`],
+                             tooltipScale: options && options.tooltipScale,
+                             tooltipTextSize: options && options.tooltipTextSize,
+                             tooltipFont: options && options.tooltipFont
+                           };
                       }
                   } 
                   if (!isHover || isHollow) p.circle(px, py, ptSz);
@@ -1713,6 +1829,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
               });
           });
       }
+
+            // Draw axis lines over the data
+            p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
+            p.line(0, h, w, h); // X
+            p.line(0, 0, 0, h); // Y
       p.pop();
   };
 
@@ -1947,8 +2068,13 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                    if (colorCol) content.push(`${colorCol}: ${rows[i][colorCol]}`);
                    
                    p.chart.hoverState = { 
-                     active: true, x: p.mouseX, y: p.mouseY, 
-                     content: content
+                     active: true,
+                     x: p.mouseX,
+                     y: p.mouseY,
+                     content: content,
+                     tooltipScale: options && options.tooltipScale,
+                     tooltipTextSize: options && options.tooltipTextSize,
+                     tooltipFont: options && options.tooltipFont
                    };
                }
           } 
@@ -1977,6 +2103,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
               p.text(txt, cx, ly);
           }
       }
+
+            // Draw axis lines over the data
+            p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
+            p.line(0, h, w, h); // X
+            p.line(0, 0, 0, h); // Y
       p.pop();
   };
 
@@ -2213,13 +2344,16 @@ p5.prototype.hist = function(data, options = {}) {
         if (p.mouseX >= gx && p.mouseX <= gx + barW && p.mouseY >= gy && p.mouseY <= gy + rectH) {
             isHover = true;
             p.chart.hoverState = {
-                active: true,
-                x: p.mouseX,
-                y: p.mouseY,
-                content: [
-                    `Range: ${binStart}—${binEnd}`,
-                    `Count: ${count}`
-                ]
+              active: true,
+              x: p.mouseX,
+              y: p.mouseY,
+              content: [
+                `Range: ${binStart}—${binEnd}`,
+                `Count: ${count}`
+              ],
+              tooltipScale: options && options.tooltipScale,
+              tooltipTextSize: options && options.tooltipTextSize,
+              tooltipFont: options && options.tooltipFont
             };
             p.cursor(p.HAND);
         }
@@ -2247,6 +2381,11 @@ p5.prototype.hist = function(data, options = {}) {
             p.text(count, rectX + barW / 2, rectY - 2); 
         }
     });
+
+        // Draw axis lines over the data
+        p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
+        p.line(0, h, w, h);
+        p.line(0, 0, 0, h);
 
     p.pop();
 };
