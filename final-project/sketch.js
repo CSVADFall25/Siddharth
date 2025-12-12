@@ -1,19 +1,29 @@
 let data;
 
 function preload() {
-  data = tableToDataFrame('data_nan.csv', 'csv', 'header');
+  // Generate a dataframe with 30,000 rows
+  let rows = [];
+  for (let i = 0; i < 30000; i++) {
+    rows.push({
+      ID: i + 1,
+      Name: 'Person_' + (i + 1),
+      Age: Math.floor(Math.random() * 60) + 18, // Age between 18-77
+      Salary: Math.floor(Math.random() * 150000) + 30000, // Salary between 30k-180k
+      Department: ['Engineering', 'Sales', 'Marketing', 'HR', 'Finance'][Math.floor(Math.random() * 5)]
+    });
+  }
+  data = createDataFrame(rows);
 }
 
 function setup() {
   createCanvas(1200, 600);
-  // Sort data by Age in descending order
-  data = data.sort('Age', 'descending');
+  // Sort data by Salary in descending order
+  data = data.sort('Salary', 'descending');
 }
 
 function draw() {
   background(255);
-  //table(data);
-  scatter(data, { x: 'Age', y: 'Salary' });
+  table(data);
   
   // Display export instructions
   fill(0);
