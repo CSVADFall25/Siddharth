@@ -8,6 +8,10 @@ function getLuminance(hex) {
   if (hex.length === 3) {
     hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
   }
+  // Support 8-digit hex (#RRGGBBAA) by ignoring alpha.
+  if (hex.length === 8) {
+    hex = hex.substring(0, 6);
+  }
   if (hex.length !== 6) return 1; // fallback: treat as light
   const r = parseInt(hex.substring(0,2), 16) / 255;
   const g = parseInt(hex.substring(2,4), 16) / 255;
@@ -17,6 +21,25 @@ function getLuminance(hex) {
 
 // Helper: Choose label color based on background
 function getAutoLabelColor(bgColor) {
+  // Numbers are treated as grayscale (0..255)
+  if (typeof bgColor === 'number') {
+    const v = Math.max(0, Math.min(255, bgColor));
+    const lum = v / 255;
+    return lum > 0.6 ? '#111' : '#fff';
+  }
+
+  // p5.Color (and similar) often expose .levels = [r,g,b,a]
+  if (bgColor && typeof bgColor === 'object') {
+    const levels = bgColor.levels;
+    if (Array.isArray(levels) && levels.length >= 3) {
+      const r = Math.max(0, Math.min(255, Number(levels[0]) || 0)) / 255;
+      const g = Math.max(0, Math.min(255, Number(levels[1]) || 0)) / 255;
+      const b = Math.max(0, Math.min(255, Number(levels[2]) || 0)) / 255;
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      return lum > 0.6 ? '#111' : '#fff';
+    }
+  }
+
   let hex = bgColor;
   if (typeof hex === 'string' && hex.startsWith('rgb')) {
     const nums = hex.match(/\d+/g);
@@ -472,6 +495,136 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           }
         }
         return out;
+      }
+
+      // Convert a column to Date values (mutates in place).
+      // - Default output is Date objects.
+      // - Optional parser: (value, row, index) => Date | number | null
+      // - Optional format strings: 'YYYY-MM-DD', 'MM/DD/YYYY', 'DD/MM/YYYY', 'ISO'
+      // Options:
+      //   { format, parser, output: 'date'|'timestamp', unit: 'ms'|'s', onInvalid: 'null'|'keep'|'throw' }
+      convertDate(colName, parserOrOptions) {
+        if (!colName) throw new Error('convertDate: colName is required');
+
+        let options = {};
+        if (typeof parserOrOptions === 'function') {
+          options.parser = parserOrOptions;
+        } else if (typeof parserOrOptions === 'string') {
+          options.format = parserOrOptions;
+        } else if (parserOrOptions && typeof parserOrOptions === 'object') {
+          options = { ...parserOrOptions };
+        }
+
+        const format = options.format ? String(options.format).toUpperCase() : null;
+        const output = options.output === 'timestamp' ? 'timestamp' : 'date';
+        const unit = options.unit === 's' ? 's' : 'ms';
+        const onInvalid = options.onInvalid ? String(options.onInvalid).toLowerCase() : 'null';
+        const userParser = typeof options.parser === 'function' ? options.parser : null;
+
+        const parseKnownFormat = (raw) => {
+          const s = String(raw).trim();
+          if (!s) return null;
+
+          if (format === 'YYYY-MM-DD') {
+            const m = /^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})$/.exec(s);
+            if (!m) return null;
+            const y = Number(m[1]);
+            const mo = Number(m[2]);
+            const d = Number(m[3]);
+            return new Date(y, mo - 1, d);
+          }
+
+          if (format === 'MM/DD/YYYY') {
+            const m = /^([0-9]{1,2})\/([0-9]{1,2})\/([0-9]{4})$/.exec(s);
+            if (!m) return null;
+            const mo = Number(m[1]);
+            const d = Number(m[2]);
+            const y = Number(m[3]);
+            return new Date(y, mo - 1, d);
+          }
+
+          if (format === 'DD/MM/YYYY') {
+            const m = /^([0-9]{1,2})\/([0-9]{1,2})\/([0-9]{4})$/.exec(s);
+            if (!m) return null;
+            const d = Number(m[1]);
+            const mo = Number(m[2]);
+            const y = Number(m[3]);
+            return new Date(y, mo - 1, d);
+          }
+
+          if (format === 'ISO') {
+            const dt = new Date(s);
+            return Number.isFinite(dt.getTime()) ? dt : null;
+          }
+
+          return null;
+        };
+
+        const coerceToDate = (value) => {
+          if (value === null || value === undefined || value === '') return null;
+          if (value instanceof Date) {
+            return Number.isFinite(value.getTime()) ? value : null;
+          }
+          if (typeof value === 'number') {
+            const ms = unit === 's' ? value * 1000 : value;
+            const dt = new Date(ms);
+            return Number.isFinite(dt.getTime()) ? dt : null;
+          }
+          if (typeof value === 'string') {
+            const s = value.trim();
+            if (!s) return null;
+
+            // Avoid timezone surprises for plain YYYY-MM-DD when no format provided.
+            if (!format && /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.test(s)) {
+              const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(s);
+              const y = Number(m[1]);
+              const mo = Number(m[2]);
+              const d = Number(m[3]);
+              const dt = new Date(y, mo - 1, d);
+              return Number.isFinite(dt.getTime()) ? dt : null;
+            }
+
+            const dt = new Date(s);
+            return Number.isFinite(dt.getTime()) ? dt : null;
+          }
+          const dt = new Date(value);
+          return Number.isFinite(dt.getTime()) ? dt : null;
+        };
+
+        this._rows.forEach((row, i) => {
+          if (!row || row[colName] === undefined) return;
+
+          let parsed;
+          if (userParser) {
+            parsed = userParser(row[colName], row, i);
+          } else if (format) {
+            parsed = parseKnownFormat(row[colName]);
+          } else {
+            parsed = coerceToDate(row[colName]);
+          }
+
+          let dt;
+          if (parsed instanceof Date) dt = parsed;
+          else if (typeof parsed === 'number') dt = new Date(unit === 's' ? parsed * 1000 : parsed);
+          else if (parsed === null || parsed === undefined || parsed === '') dt = null;
+          else dt = coerceToDate(parsed);
+
+          const ok = dt === null ? true : Number.isFinite(dt.getTime());
+          if (!ok) {
+            if (onInvalid === 'throw') {
+              throw new Error(`convertDate: invalid date in column "${colName}" at row ${i}`);
+            }
+            if (onInvalid === 'keep') {
+              return;
+            }
+            // default: 'null'
+            dt = null;
+          }
+
+          row[colName] = output === 'timestamp' ? (dt === null ? null : dt.getTime()) : dt;
+        });
+
+        return this;
       }
 
 
@@ -1926,6 +2079,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const validation = validateData(df, valCols, options, 'bar');
     
     const labelPos = options.labelPos || 'auto';
+    const labelBold = options.labelBold === true;
     const labels = df.col(labelCol);
     const rows = df.rows;
 
@@ -2124,7 +2278,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 p.rect(rectX, by, rectW, barH);
 
                 if (labelPos !== 'none') {
-                  p.textSize(barLabelSize); p.textAlign(p.LEFT, p.CENTER);
+                  p.textSize(barLabelSize);
+                  p.textAlign(p.LEFT, p.CENTER);
+                  p.textStyle(labelBold ? p.BOLD : p.NORMAL);
                   let txt = String(val);
                   let tw = p.textWidth(txt);
                   // Use label color protection for all label positions
@@ -2148,7 +2304,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                   }
                 }
             });
-            p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(axisLabelSize);
+            p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
             p.text(truncate(p, lbl, labelSpace - 10), barStartX - 10, i * rowH + rowH/2);
         });
 
@@ -2222,7 +2378,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 p.rect(bx, rectY, barW, rectH);
 
                 if (labelPos !== 'none') {
-                  p.textSize(barLabelSize); p.textAlign(p.CENTER, p.BOTTOM);
+                  p.textSize(barLabelSize);
+                  p.textAlign(p.CENTER, p.BOTTOM);
+                  p.textStyle(labelBold ? p.BOLD : p.NORMAL);
                   let txt = String(val);
                   // Use label color protection for all label positions
                   if (labelPos === 'inside') {
@@ -2249,7 +2407,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
             p.line(centerX, h, centerX, h + tickLen);
             p.noStroke();
-            p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(axisLabelSize);
+            p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
             p.text(truncate(p, lbl, colW), centerX, h + scalePx(p, options, 10, 8, 14));
         });
 
