@@ -16,8 +16,8 @@ function setup() {
 function draw() {
   background(200);
   
-  // Draw the map with data - center is auto-calculated!
-  mapChart(df, {
+  // Draw the geo chart with data - center is auto-calculated!
+  geo(df, {
     lat: 'lat',
     lon: 'lon',
     label: 'label',

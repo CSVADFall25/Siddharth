@@ -22,18 +22,18 @@ function setup() {
 function draw() {
   background(255);
 
-  // Line Chart with COMPREHENSIVE options
-  linePlot(df, {
+  // Series chart with COMPREHENSIVE options
+  series(df, {
     // ---------------------------
     // 1. DATA MAPPING
     // ---------------------------
     x: "Date",              // Column name for X-axis
-    y: ["ValueA", "ValueB"], // Column name(s) for Y-axis. Pass an array ["A", "B"] for multi-line.
+    y: ["ValueA", "ValueB"], // Column name(s) for Y-axis. Pass an array ["A", "B"] for multi-series.
 
     // ---------------------------
     // 2. TEXT & METADATA
     // ---------------------------
-    title: "Comprehensive Line Plot of The World Today and More More More Yay", // Chart Title
+    title: "Comprehensive Series Plot of The World Today and More More More Yay", // Chart Title
     subtitle: "Analysis of Trends over Time", // Subtitle
     author: "Data Science Team",      // Footer: Author
     source: "Sensor Array #4",        // Footer: Source
@@ -61,7 +61,7 @@ function draw() {
     // labelPos options:
     //   "top"    -> Always above dot
     //   "bottom" -> Always below dot
-    //   "auto"   -> Smart positioning (flips if near top edge, alternates for multi-line)
+    //   "auto"   -> Smart positioning (flips if near top edge, alternates for multi-series)
     labelPos: "top",       
 
     // ---------------------------
@@ -90,7 +90,7 @@ function draw() {
   
   /*
   // -- Minimalist Sparkline Style --
-  linePlot(df, {
+  series(df, {
      x: "Date", y: "ValueA",
      margin: { top: 10, right: 10, bottom: 10, left: 10 },
      dots: false,         // No dots
@@ -103,7 +103,7 @@ function draw() {
 
   /*
   // -- "Busy" Scientific Style --
-  linePlot(df, {
+  series(df, {
      x: "Date", y: ["ValueA", "ValueB", "ValueC"],
      pointStyle: "filled",
      pointSize: 5,

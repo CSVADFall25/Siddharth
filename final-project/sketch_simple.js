@@ -16,8 +16,8 @@ function setup() {
 function draw() {
   background(200);
   
-  // Draw the map with data - that's it!
-  map(df, {
+  // Draw the geo chart with data - that's it!
+  geo(df, {
     lat: 'lat',
     lon: 'lon',
     label: 'label',

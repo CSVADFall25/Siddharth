@@ -65,7 +65,7 @@ function getAutoLabelColor(bgColor) {
   const TICK_LENGTH = 5;
   const NUM_TICKS = 5;
   
-  // ====== POINTS (Scatter & Line) ======
+  // ====== POINTS (Scatter & Series) ======
   const DEFAULT_POINT_SIZE = 6;
   const DEFAULT_POINT_SIZE_SCATTER = 8;
   const MIN_POINT_SIZE = 5;
@@ -106,13 +106,13 @@ function getAutoLabelColor(bgColor) {
   const TABLE_SEARCH_WIDTH = 150;
   const TABLE_ARROW_SIZE = 24;
   
-  // ====== MAP ======
-  const MAP_DEFAULT_ZOOM = 4;
-  const MAP_POINT_SIZE = 12;
-  const MAP_POINT_COLOR = "#D62728"; 
-  const MAP_POINT_HOVER_SCALE = 1.3;
-  const MAP_LABEL_SIZE = 11;
-  const MAP_PAN_AMOUNT = 0.5;
+  // ====== GEO ======
+  const GEO_DEFAULT_ZOOM = 4;
+  const GEO_POINT_SIZE = 12;
+  const GEO_POINT_COLOR = "#D62728"; 
+  const GEO_POINT_HOVER_SCALE = 1.3;
+  const GEO_LABEL_SIZE = 11;
+  const GEO_PAN_AMOUNT = 0.5;
   
   // ====== TOOLTIPS ======
   const TOOLTIP_BG_COLOR = "rgba(0, 0, 0, 0.86)"; 
@@ -153,10 +153,10 @@ function getAutoLabelColor(bgColor) {
   
   // Chart-Specific Behavior:
   //   Bar        - SKIP:    Bars with NaN not rendered
-  //   Line       - BREAK:   Creates gaps in line where NaN occurs
+  //   Series     - BREAK:   Creates gaps in series where NaN occurs
   //   Histogram  - FILTER:  NaN values excluded from binning
   //   Scatter    - SKIP:    Points with NaN not drawn
-  //   Map        - SKIP:    Points with NaN not drawn
+  //   Geo        - SKIP:    Points with NaN not drawn
   //   Pie        - STRICT:  Shows error message (defaults to strict mode)
   //   Table      - DISPLAY: Shows "—" with gray styling
   
@@ -1519,16 +1519,16 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
   };
   
 // ==========================================
-  // 5. LINE PLOT
+  // 5. SERIES
   // ==========================================
   
   /**
-   * Creates a line plot
-   * NaN Handling: Creates BREAKS (gaps) in the line where NaN values occur.
+  * Creates a series chart
+  * NaN Handling: Creates BREAKS (gaps) in the series where NaN values occur.
    * Points with NaN are NOT drawn. A warning is logged showing affected data.
    * Set nanPolicy: 'silent' to suppress warnings, or 'strict' to throw an error.
    */
-  p5.prototype.linePlot = function(data, options = {}) {
+  p5.prototype.series = function(data, options = {}) {
       const p = this;
       ensureCanvasMatchesDisplay(p, options);
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
@@ -1536,7 +1536,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const yCols = Array.isArray(options.y) ? options.y : [options.y || df.columns[1]];
       
       // Validate data for NaN values
-      const validation = validateData(df, yCols, options, 'linePlot');
+      const validation = validateData(df, yCols, options, 'series');
       
       const margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
       const margin = withMobileRightPadding(p, options, margin0);
@@ -2601,16 +2601,16 @@ p5.prototype.hist = function(data, options = {}) {
   };
 
   // ==========================================
-  // 9. MAP (OpenStreetMap Integration)
+  // 9. GEO (OpenStreetMap Integration)
   // ==========================================
   
   /**
-   * Creates a map chart with geographic points
+  * Creates a geo chart with geographic points
    * NaN Handling: Points with NaN in lat/lon are SKIPPED (not drawn).
    * A warning is logged showing how many points were skipped.
    * Set nanPolicy: 'silent' to suppress warnings, or 'strict' to throw an error.
    */
-  p5.prototype.mapChart = function(data, options = {}) {
+  p5.prototype.geo = function(data, options = {}) {
       const p = this;
       ensureCanvasMatchesDisplay(p, options);
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
@@ -2640,12 +2640,12 @@ p5.prototype.hist = function(data, options = {}) {
       const valueCol = options.value || 'value';
       
       // Validate data for NaN values
-      const validation = validateData(df, [latCol, lonCol], options, 'mapChart');
+      const validation = validateData(df, [latCol, lonCol], options, 'geo');
       
       // Auto-calculate center and zoom to fit all points
       let autoCenterLat = 37.8;
       let autoCenterLon = -96;
-      let autoZoom = MAP_DEFAULT_ZOOM;
+      let autoZoom = GEO_DEFAULT_ZOOM;
       
       const lats = df.col(latCol).map(Number).filter(v => !isNaN(v));
       const lons = df.col(lonCol).map(Number).filter(v => !isNaN(v));
@@ -2672,9 +2672,9 @@ p5.prototype.hist = function(data, options = {}) {
           autoZoom = Math.min(Math.max(Math.min(zoomLat, zoomLon), 2), 18); // Clamp between 2-18
       }
       
-      // Map state
-      if (!p.chart._mapState) {
-          p.chart._mapState = {
+      // Geo state
+        if (!p.chart._geoState) {
+          p.chart._geoState = {
               centerLat: options.centerLat || autoCenterLat,
               centerLon: options.centerLon || autoCenterLon,
               zoom: options.zoom || autoZoom,
@@ -2691,7 +2691,7 @@ p5.prototype.hist = function(data, options = {}) {
               _needsTileReload: false
           };
       }
-      const state = p.chart._mapState;
+      const state = p.chart._geoState;
 
         // If the canvas size changes (common on mobile resize/orientation changes),
         // adjust zoom to keep points fitting without requiring sketch changes.
@@ -2701,7 +2701,7 @@ p5.prototype.hist = function(data, options = {}) {
               // Only auto-adjust zoom if the user hasn't manually zoomed.
               if (!state._userZoom) {
                 // Always recompute a fit-to-bounds zoom for the current dimensions.
-                // This lets the map shrink and then expand back naturally.
+                // This lets the geo chart shrink and then expand back naturally.
                 state.zoom = autoZoom;
               }
 
@@ -2716,8 +2716,8 @@ p5.prototype.hist = function(data, options = {}) {
       
       // Style options
       const _responsiveScale = getResponsiveScale(p, options);
-      const pointColor = options.pointColor || p.color(MAP_POINT_COLOR);
-      const pointSize = options.pointSize || scalePx(p, options, MAP_POINT_SIZE, 8, 16);
+      const pointColor = options.pointColor || p.color(GEO_POINT_COLOR);
+      const pointSize = options.pointSize || scalePx(p, options, GEO_POINT_SIZE, 8, 16);
       const showLabels = options.showLabels !== false;
       const showControls = options.showControls !== false;
       
@@ -2819,7 +2819,7 @@ p5.prototype.hist = function(data, options = {}) {
           loadVisibleTiles();
       }
       
-      // Draw map
+      // Draw geo chart
       p.push();
       drawTiles();
       
@@ -2845,14 +2845,14 @@ p5.prototype.hist = function(data, options = {}) {
               }
               
               p.fill(pointColor.levels[0], pointColor.levels[1], pointColor.levels[2], isHovered ? 255 : HOVER_ALPHA);
-              p.ellipse(pos.x, pos.y, isHovered ? pointSize * MAP_POINT_HOVER_SCALE : pointSize, isHovered ? pointSize * MAP_POINT_HOVER_SCALE : pointSize);
+              p.ellipse(pos.x, pos.y, isHovered ? pointSize * GEO_POINT_HOVER_SCALE : pointSize, isHovered ? pointSize * GEO_POINT_HOVER_SCALE : pointSize);
               p.fill(255);
               p.ellipse(pos.x, pos.y, isHovered ? pointSize * 0.5 : pointSize * 0.33, isHovered ? pointSize * 0.5 : pointSize * 0.33);
               
               if (showLabels && row[labelCol]) {
                   p.fill(0);
                   p.textAlign(p.CENTER, p.BOTTOM);
-                  p.textSize(scalePx(p, options, MAP_LABEL_SIZE, 9, 14));
+                  p.textSize(scalePx(p, options, GEO_LABEL_SIZE, 9, 14));
                   p.text(row[labelCol], pos.x, pos.y - (isHovered ? pointSize * 0.6 : pointSize * 0.5));
               }
           }
