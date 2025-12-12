@@ -77,6 +77,7 @@ function draw() {
   
   // Display table - searchable and pagination auto-enabled for 43 rows
   table(data, {
+    id: 'student_records_table',
     title: 'Student Records',
     tooltip: 'Click to select',
     x: 20,

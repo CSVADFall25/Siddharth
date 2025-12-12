@@ -2290,13 +2290,25 @@ p5.prototype.hist = function(data, options = {}) {
       const totalRowCount = df.rows.length;
       const searchable = options.searchable !== undefined ? options.searchable : (totalRowCount > TABLE_MAX_ROWS);
       const pagination = options.pagination !== undefined ? options.pagination : (totalRowCount > TABLE_MAX_ROWS);
+
+      // Sorting (click headers to sort asc/desc)
+      const sortable = options.sortable !== undefined ? options.sortable : true;
       
       // Initialize pagination state if not exists
       if (!p.chart._tableStates) p.chart._tableStates = {};
       if (!p.chart._tableStates[id]) {
-          p.chart._tableStates[id] = { currentPage: options.page || 0 };
+          p.chart._tableStates[id] = {
+            currentPage: options.page || 0,
+            sortColumn: null,
+            sortDirection: 'asc',
+            _mouseWasPressed: false
+          };
       }
       const state = p.chart._tableStates[id];
+      // Allow external control of page without overwriting sort state.
+      if (options.page !== undefined) {
+        state.currentPage = options.page;
+      }
       
       // Layout dimensions (calculate early for search input positioning)
       const _responsiveScale = getResponsiveScale(p, options);
@@ -2343,6 +2355,42 @@ p5.prototype.hist = function(data, options = {}) {
       const search = searchable && p.chart.inputs[id] ? p.chart.inputs[id].value().toLowerCase() : '';
       let rows = df.rows;
       if (search) rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(search)));
+
+      // Apply sort (after search filtering, before pagination)
+      if (sortable && state.sortColumn) {
+        const sortCol = state.sortColumn;
+        const dir = state.sortDirection === 'desc' ? -1 : 1;
+        const isNil = (v) => v === null || v === undefined || v === '';
+        const toNumberOrNull = (v) => {
+          if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+          if (typeof v === 'string') {
+            const n = Number(v);
+            return Number.isFinite(n) ? n : null;
+          }
+          return null;
+        };
+        rows = rows.slice().sort((a, b) => {
+          const av = a[sortCol];
+          const bv = b[sortCol];
+          const aNil = isNil(av);
+          const bNil = isNil(bv);
+          if (aNil && bNil) return 0;
+          if (aNil) return 1; // push empty-ish values to bottom
+          if (bNil) return -1;
+
+          const an = toNumberOrNull(av);
+          const bn = toNumberOrNull(bv);
+          if (an !== null && bn !== null) {
+            if (an === bn) return 0;
+            return an < bn ? -1 * dir : 1 * dir;
+          }
+
+          const as = String(av).toLowerCase();
+          const bs = String(bv).toLowerCase();
+          if (as === bs) return 0;
+          return as < bs ? -1 * dir : 1 * dir;
+        });
+      }
       
       // Pagination calculations
       let maxRows = options.maxRows || TABLE_MAX_ROWS;
@@ -2399,6 +2447,36 @@ p5.prototype.hist = function(data, options = {}) {
               hoveredCell = { row: hovRow, col: hovCol };
           }
       }
+
+      // Header click-to-sort (debounced to a single toggle per press)
+      const mouseJustPressed = p.mouseIsPressed && !state._mouseWasPressed;
+      const mouseJustReleased = !p.mouseIsPressed && state._mouseWasPressed;
+      // Update press state early so it stays consistent across the rest of the draw.
+      if (mouseJustPressed) state._mouseWasPressed = true;
+      if (mouseJustReleased) state._mouseWasPressed = false;
+
+      if (sortable && mouseJustPressed && hoveredCell && hoveredCell.row === 0) {
+        const clickedColName = cols[hoveredCell.col];
+        if (state.sortColumn !== clickedColName) {
+          // New column: start at ascending.
+          state.sortColumn = clickedColName;
+          state.sortDirection = 'asc';
+        } else {
+          // Same column: cycle asc -> desc -> none -> asc ...
+          if (state.sortDirection === 'asc') {
+            state.sortDirection = 'desc';
+          } else if (state.sortDirection === 'desc') {
+            state.sortColumn = null;
+            state.sortDirection = 'asc';
+          } else {
+            // Fallback if state gets into an unexpected value.
+            state.sortDirection = 'asc';
+          }
+        }
+        // Reset to first page when changing sort.
+        state.currentPage = 0;
+        if (options.onPageChange) options.onPageChange(state.currentPage);
+      }
       
       // Custom tooltip message (optional)
       const tooltipMsg = options.tooltip;
@@ -2435,7 +2513,26 @@ p5.prototype.hist = function(data, options = {}) {
                 p.fill(p.lerpColor(headerColor, p.color(200), 0.3)); p.rect(i*colW, 0, colW, rowH);
             }
             p.fill(0);
-            p.text(truncate(p, c, colW-10), i*colW + 5, rowH/2);
+
+            // Column header text
+            const activeSort = sortable && state.sortColumn === c;
+            const rightGutter = activeSort ? 18 : 6;
+            p.text(truncate(p, c, colW - 10 - rightGutter), i*colW + 5, rowH/2);
+
+            // Sort indicator
+            if (activeSort) {
+              p.push();
+              p.noStroke();
+              p.fill(80);
+              const cx = i * colW + colW - 10;
+              const cy = rowH / 2;
+              if (state.sortDirection === 'asc') {
+                p.triangle(cx - 4, cy + 3, cx + 4, cy + 3, cx, cy - 4);
+              } else {
+                p.triangle(cx - 4, cy - 3, cx + 4, cy - 3, cx, cy + 4);
+              }
+              p.pop();
+            }
         });
       
         // Draw data rows
