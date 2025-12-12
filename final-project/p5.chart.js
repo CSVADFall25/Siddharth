@@ -137,6 +137,29 @@ function getAutoLabelColor(bgColor) {
   // ====== TRUNCATION ======
   const TRUNCATE_SUFFIX = "...";
   
+  // ====== NaN HANDLING POLICY ======
+  // Global policy for handling NaN/null values across all chart types
+  // 'warn' (default): Logs warnings and handles gracefully with visual indicators
+  // 'silent': Silently filters/skips NaN values without warnings
+  // 'strict': Throws errors when NaN values are detected
+  const NAN_POLICY = {
+    WARN: 'warn',
+    SILENT: 'silent', 
+    STRICT: 'strict'
+  };
+  
+  // Default NaN policy (can be overridden per chart)
+  p5.prototype.chart.nanPolicy = NAN_POLICY.WARN;
+  
+  // Chart-Specific Behavior:
+  //   Bar        - SKIP:    Bars with NaN not rendered
+  //   Line       - BREAK:   Creates gaps in line where NaN occurs
+  //   Histogram  - FILTER:  NaN values excluded from binning
+  //   Scatter    - SKIP:    Points with NaN not drawn
+  //   Map        - SKIP:    Points with NaN not drawn
+  //   Pie        - STRICT:  Shows error message (defaults to strict mode)
+  //   Table      - DISPLAY: Shows "—" with gray styling
+  
   p5.prototype.chart.inputs = {}; // Cache for DOM elements
 
   // ==========================================
@@ -399,6 +422,120 @@ function getAutoLabelColor(bgColor) {
     return pal[i % pal.length];
   }
 
+  /**
+   * Calculate nice tick interval for axes
+   * Returns a "nice" number (1, 2, 5 * 10^n) for the given range
+   * @param {number} range - The data range (max - min)
+   * @param {number} targetTicks - Target number of ticks (default 5)
+   * @returns {number} Nice interval value
+   */
+  function niceInterval(range, targetTicks = NUM_TICKS) {
+    if (range === 0) return 1;
+    const roughInterval = range / targetTicks;
+    const magnitude = Math.pow(10, Math.floor(Math.log10(roughInterval)));
+    const normalized = roughInterval / magnitude;
+    
+    // Choose nice number: 1, 2, 5, or 10
+    let niceFactor;
+    if (normalized <= 1) niceFactor = 1;
+    else if (normalized <= 2) niceFactor = 2;
+    else if (normalized <= 5) niceFactor = 5;
+    else niceFactor = 10;
+    
+    return niceFactor * magnitude;
+  }
+
+  /**
+   * Calculate nice axis bounds and tick values
+   * @param {number} dataMin - Minimum value in data
+   * @param {number} dataMax - Maximum value in data
+   * @param {number} targetTicks - Target number of ticks
+   * @returns {Object} { min, max, interval, ticks }
+   */
+  function niceAxisBounds(dataMin, dataMax, targetTicks = NUM_TICKS) {
+    const range = dataMax - dataMin;
+    const interval = niceInterval(range, targetTicks);
+    
+    const niceMin = Math.floor(dataMin / interval) * interval;
+    const niceMax = Math.ceil(dataMax / interval) * interval;
+    
+    const ticks = [];
+    for (let tick = niceMin; tick <= niceMax; tick += interval) {
+      ticks.push(tick);
+    }
+    
+    return { min: niceMin, max: niceMax, interval, ticks };
+  }
+
+  /**
+   * Validates data for NaN/null values with consistent policy handling
+   * @param {DataFrame} df - The DataFrame to validate
+   * @param {Array<string>} columns - Columns to check for NaN values
+   * @param {Object} options - Chart options including nanPolicy
+   * @param {string} chartType - Type of chart (for logging)
+   * @returns {Object} { hasNaN: boolean, nanCount: number, nanIndices: Array, cleanData: Array }
+   */
+  function validateData(df, columns, options = {}, chartType = 'chart') {
+    const policy = options.nanPolicy || p5.prototype.chart.nanPolicy || 'warn';
+    const rows = df.rows;
+    
+    let nanCount = 0;
+    let nanIndices = [];
+    let nanDetails = {}; // Track which columns have NaN
+    
+    rows.forEach((row, idx) => {
+      let hasNaN = false;
+      columns.forEach(col => {
+        const val = row[col];
+        if (val === null || val === '' || val === undefined || 
+            (typeof val === 'number' && isNaN(val)) ||
+            (typeof val === 'string' && isNaN(Number(val)) && val !== '')) {
+          hasNaN = true;
+          if (!nanDetails[col]) nanDetails[col] = 0;
+          nanDetails[col]++;
+        }
+      });
+      if (hasNaN) {
+        nanCount++;
+        nanIndices.push(idx);
+      }
+    });
+    
+    const hasNaN = nanCount > 0;
+    
+    // Handle based on policy
+    if (hasNaN) {
+      const detailsStr = Object.entries(nanDetails)
+        .map(([col, count]) => `${col} (${count})`)
+        .join(', ');
+      
+      if (policy === 'strict') {
+        throw new Error(
+          `[p5.chart.${chartType}] Data contains ${nanCount} row(s) with NaN/null values in columns: ${detailsStr}. ` +
+          `Set nanPolicy: 'warn' or 'silent' to handle automatically.`
+        );
+      } else if (policy === 'warn') {
+        console.warn(
+          `[p5.chart.${chartType}] ⚠️ Data Quality Warning: ${nanCount} of ${rows.length} rows contain NaN/null values.`,
+          `\n  Affected columns: ${detailsStr}`,
+          `\n  These values will be handled according to chart type behavior.`,
+          `\n  To suppress this warning, set nanPolicy: 'silent' in chart options.`,
+          `\n  To throw an error instead, set nanPolicy: 'strict'.`
+        );
+      }
+      // 'silent' mode: no output
+    }
+    
+    return {
+      hasNaN,
+      nanCount,
+      nanIndices,
+      nanDetails,
+      totalRows: rows.length,
+      policy
+    };
+  }
+
   function drawMeta(p, opts, w, h) {
       p.push();
       p.noStroke();
@@ -540,6 +677,12 @@ function getAutoLabelColor(bgColor) {
   // 3. BAR CHART
   // ==========================================
   
+  /**
+   * Creates a bar chart
+   * NaN Handling: Bars with NaN values are SKIPPED (not rendered).
+   * A warning is logged showing which rows/values are missing.
+   * Set nanPolicy: 'silent' to suppress warnings, or 'strict' to throw an error.
+   */
   p5.prototype.bar = function(data, options = {}) {
     const p = this;
     let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
@@ -549,6 +692,9 @@ function getAutoLabelColor(bgColor) {
     const labelCol = options.x || options.category || df.columns[0];
     let valCols = options.y || options.values || [df.columns[1]];
     if (!Array.isArray(valCols)) valCols = [valCols];
+    
+    // Validate data for NaN values
+    const validation = validateData(df, valCols, options, 'bar');
     
     const labelPos = options.labelPos || 'auto';
     const labels = df.col(labelCol);
@@ -621,7 +767,15 @@ function getAutoLabelColor(bgColor) {
             let yBase = i * rowH + (rowH * 0.1);
             let xStack = 0;
             valCols.forEach((col, j) => {
-                let val = Number(rows[i][col]) || 0;
+                let rawVal = rows[i][col];
+                // Skip if NaN/null/empty
+                if (rawVal === null || rawVal === '' || rawVal === undefined || 
+                    (typeof rawVal === 'number' && isNaN(rawVal)) ||
+                    (typeof rawVal === 'string' && isNaN(Number(rawVal)))) {
+                    return; // Skip this bar
+                }
+                
+                let val = Number(rawVal);
                 let rectW = p.map(val, 0, maxVal, 0, barWidth);
                 let rectX = barStartX + (stacked ? xStack : 0);
                 if (stacked) xStack += rectW;
@@ -693,7 +847,15 @@ function getAutoLabelColor(bgColor) {
             let xBase = i * colW + (colW * 0.1);
             let yStack = h;
             valCols.forEach((col, j) => {
-                let val = Number(rows[i][col]) || 0;
+                let rawVal = rows[i][col];
+                // Skip if NaN/null/empty
+                if (rawVal === null || rawVal === '' || rawVal === undefined || 
+                    (typeof rawVal === 'number' && isNaN(rawVal)) ||
+                    (typeof rawVal === 'string' && isNaN(Number(rawVal)))) {
+                    return; // Skip this bar
+                }
+                
+                let val = Number(rawVal);
                 let rectH = p.map(val, 0, maxVal, 0, h);
                 let rectY = stacked ? (yStack - rectH) : (h - rectH);
                 if (stacked) yStack -= rectH;
@@ -757,6 +919,13 @@ function getAutoLabelColor(bgColor) {
   // 4. PIE CHART 
   // ==========================================
   
+  /**
+   * Creates a pie/donut chart
+   * NaN Handling: Pie charts are STRICT by default - will display error message if NaN values exist.
+   * This prevents misleading visualizations where percentages don't add up to 100%.
+   * Set nanPolicy: 'warn' to filter out NaN values and render remaining data (with warning).
+   * Set nanPolicy: 'silent' to filter out NaN values silently.
+   */
   p5.prototype.pie = function(data, options = {}) {
     const p = this;
     let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
@@ -764,9 +933,84 @@ function getAutoLabelColor(bgColor) {
     const valCol = options.value || df.columns[1];
     const lblCol = options.label || df.columns[0];
     
+    // Validate data for NaN values - pie charts default to STRICT
+    const pieOptions = Object.assign({}, options);
+    if (pieOptions.nanPolicy === undefined) {
+        pieOptions.nanPolicy = 'strict'; // Pie charts are strict by default
+    }
+    
     // Data Processing
-    const values = df.col(valCol).map(Number);
-    const labels = df.col(lblCol);
+    const allValues = df.col(valCol).map(Number);
+    const allLabels = df.col(lblCol);
+    
+    // Check for NaN values
+    const nanIndices = [];
+    allValues.forEach((v, i) => {
+        if (isNaN(v)) nanIndices.push(i);
+    });
+    
+    if (nanIndices.length > 0) {
+        const policy = pieOptions.nanPolicy;
+        
+        if (policy === 'strict') {
+            // Display error message on canvas instead of rendering
+            p.push();
+            p.fill(255, 240, 240);
+            p.stroke(180, 0, 0);
+            p.strokeWeight(2);
+            p.rect(0, 0, p.width, p.height);
+            
+            p.fill(180, 0, 0);
+            p.noStroke();
+            p.textAlign(p.CENTER, p.CENTER);
+            p.textSize(16);
+            p.text('⚠️ Pie Chart Error: NaN Values Detected', p.width/2, p.height/2 - 40);
+            
+            p.textSize(12);
+            p.fill(100, 0, 0);
+            p.text(`${nanIndices.length} of ${allValues.length} values in '${valCol}' are NaN/null.`, p.width/2, p.height/2);
+            p.text(`Pie charts cannot render with missing values.`, p.width/2, p.height/2 + 20);
+            p.text(`Set nanPolicy: 'warn' or 'silent' to filter out NaN values.`, p.width/2, p.height/2 + 40);
+            p.pop();
+            
+            console.error(
+                `[p5.chart.pie] ❌ Cannot render pie chart: ${nanIndices.length} NaN values in column '${valCol}'.`,
+                `\n  Affected rows: ${nanIndices.join(', ')}`,
+                `\n  Set nanPolicy: 'warn' or 'silent' in options to filter out NaN values automatically.`
+            );
+            return; // Don't render the chart
+        } else if (policy === 'warn') {
+            console.warn(
+                `[p5.chart.pie] ⚠️ Data Quality Warning: ${nanIndices.length} of ${allValues.length} values are NaN/null.`,
+                `\n  Column: ${valCol}`,
+                `\n  Affected rows: ${nanIndices.join(', ')}`,
+                `\n  These values will be filtered out. Percentages based on ${allValues.length - nanIndices.length} valid values.`
+            );
+        }
+        // 'silent' mode: no output
+    }
+    
+    // Filter out NaN values for 'warn' and 'silent' modes
+    const values = [];
+    const labels = [];
+    allValues.forEach((v, i) => {
+        if (!isNaN(v)) {
+            values.push(v);
+            labels.push(allLabels[i]);
+        }
+    });
+    
+    if (values.length === 0) {
+        p.push();
+        p.fill(255, 240, 240);
+        p.rect(0, 0, p.width, p.height);
+        p.fill(180, 0, 0);
+        p.textAlign(p.CENTER, p.CENTER);
+        p.text('No valid data to display', p.width/2, p.height/2);
+        p.pop();
+        return;
+    }
+    
     const total = values.reduce((a,b) => a+b, 0);
     
     // Layout & Config
@@ -954,11 +1198,20 @@ function getAutoLabelColor(bgColor) {
   // 5. LINE PLOT
   // ==========================================
   
+  /**
+   * Creates a line plot
+   * NaN Handling: Creates BREAKS (gaps) in the line where NaN values occur.
+   * Points with NaN are NOT drawn. A warning is logged showing affected data.
+   * Set nanPolicy: 'silent' to suppress warnings, or 'strict' to throw an error.
+   */
   p5.prototype.linePlot = function(data, options = {}) {
       const p = this;
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
       const xCol = options.x || df.columns[0];
       const yCols = Array.isArray(options.y) ? options.y : [options.y || df.columns[1]];
+      
+      // Validate data for NaN values
+      const validation = validateData(df, yCols, options, 'linePlot');
       
       const margin = options.margin || DEFAULT_MARGIN;
       const w = (options.width || p.width) - margin.left - margin.right;
@@ -997,6 +1250,9 @@ function getAutoLabelColor(bgColor) {
       p.line(0, h, w, h); // X
       p.line(0, 0, 0, h); // Y
       
+      // Calculate nice Y-axis bounds
+      const yAxis = niceAxisBounds(minV, maxV);
+      
       p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
           function formatTick(val) {
             let num = Number(val);
@@ -1011,16 +1267,16 @@ function getAutoLabelColor(bgColor) {
             }
             return num.toFixed(decimals);
           }
-      // Y-Ticks
-        for(let i = 0; i <= NUM_TICKS; i++) {
-          let yVal = h - (h / NUM_TICKS) * i;
-          let labelVal = minV + ((maxV - minV) / NUM_TICKS) * i;
+      // Y-Ticks (using nice intervals)
+      yAxis.ticks.forEach(tickVal => {
+          let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
           p.line(-TICK_LENGTH, yVal, 0, yVal);
           p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
-          p.text(formatTick(labelVal), -8, yVal);
+          p.text(formatTick(tickVal), -8, yVal);
           p.stroke(TICK_COLOR);
-        }
-      // X-Ticks
+      });
+      
+      // X-Ticks (categorical - keep as is for now)
       const tickInterval = Math.max(1, Math.floor(xs.length / 8));
         for(let i = 0; i < xs.length; i += tickInterval) {
           let xVal = p.map(i, 0, xs.length-1, 0, w);
@@ -1036,9 +1292,16 @@ function getAutoLabelColor(bgColor) {
           p.beginShape();
           xs.forEach((xVal, j) => {
               let val = rows[j][col];
-              if (val === null || val === "") { p.endShape(); p.beginShape(); return; }
+              // Check for NaN/null/empty - create break in line
+              if (val === null || val === '' || val === undefined || 
+                  (typeof val === 'number' && isNaN(val)) ||
+                  (typeof val === 'string' && isNaN(Number(val)))) {
+                  p.endShape(); // End current line segment
+                  p.beginShape(); // Start new segment after gap
+                  return;
+              }
               let px = p.map(j, 0, xs.length-1, 0, w);
-              let py = p.map(Number(val), minV, maxV, h, 0);
+              let py = p.map(Number(val), yAxis.min, yAxis.max, h, 0);
               p.vertex(px, py);
           });
           p.endShape();
@@ -1054,7 +1317,7 @@ function getAutoLabelColor(bgColor) {
                   if (isNaN(val)) return;
                   
                   let px = p.map(j, 0, xs.length-1, 0, w);
-                  let py = p.map(val, minV, maxV, h, 0);
+                  let py = p.map(val, yAxis.min, yAxis.max, h, 0);
                   
                   let d = p.dist(p.mouseX-margin.left, p.mouseY-margin.top, px, py);
                   let isHover = d < (ptSz + 4);
@@ -1119,11 +1382,20 @@ function getAutoLabelColor(bgColor) {
   // 6. SCATTER PLOT 
   // ==========================================
 
+  /**
+   * Creates a scatter plot
+   * NaN Handling: Points with NaN in x or y are SKIPPED (not drawn).
+   * A warning is logged showing how many points were skipped.
+   * Set nanPolicy: 'silent' to suppress warnings, or 'strict' to throw an error.
+   */
   p5.prototype.scatter = function(data, options = {}) {
       const p = this;
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
       const xCol = options.x || df.columns[0];
       const yCol = options.y || df.columns[1];
+      
+      // Validate data for NaN values
+      const validation = validateData(df, [xCol, yCol], options, 'scatter');
       
       const margin = options.margin || DEFAULT_MARGIN;
       const w = (options.width || p.width) - margin.left - margin.right;
@@ -1141,8 +1413,11 @@ function getAutoLabelColor(bgColor) {
       let minS = 0, maxS = 0;
       if (sizeCol && rows[0][sizeCol] !== undefined) {
           sizes = df.col(sizeCol).map(Number);
-          minS = Math.min(...sizes);
-          maxS = Math.max(...sizes);
+          const validSizes = sizes.filter(s => !isNaN(s));
+          if (validSizes.length > 0) {
+              minS = Math.min(...validSizes);
+              maxS = Math.max(...validSizes);
+          }
       }
       const minPtSz = options.minSize || MIN_POINT_SIZE;
       const maxPtSz = options.maxSize || MAX_POINT_SIZE;
@@ -1161,20 +1436,24 @@ function getAutoLabelColor(bgColor) {
           isColorNumeric = !isNaN(Number(sample));
           
           if (isColorNumeric) {
-             let vals = df.col(colorCol).map(Number);
-             minC = Math.min(...vals);
-             maxC = Math.max(...vals);
+             let vals = df.col(colorCol).map(Number).filter(v => !isNaN(v));
+             if (vals.length > 0) {
+                 minC = Math.min(...vals);
+                 maxC = Math.max(...vals);
+             }
           } else {
              // Unique categories
              colorDomain = [...new Set(df.col(colorCol))];
           }
       }
 
-      // Bounds
-      const minX = (options.minX !== undefined) ? options.minX : Math.min(...xs);
-      const maxX = (options.maxX !== undefined) ? options.maxX : Math.max(...xs);
-      const minY = (options.minY !== undefined) ? options.minY : Math.min(...ys);
-      const maxY = (options.maxY !== undefined) ? options.maxY : Math.max(...ys);
+      // Bounds (default to include 0,0) - filter out NaN values
+      const validXs = xs.filter(x => !isNaN(x));
+      const validYs = ys.filter(y => !isNaN(y));
+      const minX = (options.minX !== undefined) ? options.minX : (validXs.length > 0 ? Math.min(0, ...validXs) : 0);
+      const maxX = (options.maxX !== undefined) ? options.maxX : (validXs.length > 0 ? Math.max(0, ...validXs) : 1);
+      const minY = (options.minY !== undefined) ? options.minY : (validYs.length > 0 ? Math.min(0, ...validYs) : 0);
+      const maxY = (options.maxY !== undefined) ? options.maxY : (validYs.length > 0 ? Math.max(0, ...validYs) : 1);
 
       // Defaults
       if (options.xLabel === undefined) options.xLabel = xCol;
@@ -1197,6 +1476,10 @@ function getAutoLabelColor(bgColor) {
       p.line(0, h, w, h); // X
       p.line(0, 0, 0, h); // Y
       
+      // Calculate nice tick intervals
+      const xAxis = niceAxisBounds(minX, maxX);
+      const yAxis = niceAxisBounds(minY, maxY);
+      
       // Ticks Helper
       function formatTick(val) {
         if (val === 0) return '0';
@@ -1208,26 +1491,24 @@ function getAutoLabelColor(bgColor) {
         return val.toFixed(decimals);
       }
 
-      // X-Ticks
+      // X-Ticks (using nice intervals)
       p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
-      for(let i = 0; i <= NUM_TICKS; i++) {
-        let xVal = (w / NUM_TICKS) * i;
-        let labelVal = minX + ((maxX - minX) / NUM_TICKS) * i;
+      xAxis.ticks.forEach(tickVal => {
+        let xVal = p.map(tickVal, xAxis.min, xAxis.max, 0, w);
         p.line(xVal, h, xVal, h + TICK_LENGTH);
         p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.CENTER, p.TOP);
-        p.text(formatTick(labelVal), xVal, h + 8);
+        p.text(formatTick(tickVal), xVal, h + 8);
         p.stroke(TICK_COLOR);
-      }
+      });
       
-      // Y-Ticks
-      for(let i = 0; i <= NUM_TICKS; i++) {
-        let yVal = h - (h / NUM_TICKS) * i;
-        let labelVal = minY + ((maxY - minY) / NUM_TICKS) * i;
+      // Y-Ticks (using nice intervals)
+      yAxis.ticks.forEach(tickVal => {
+        let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
         p.stroke(TICK_COLOR); p.line(-TICK_LENGTH, yVal, 0, yVal);
         p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
-        p.text(formatTick(labelVal), -8, yVal);
+        p.text(formatTick(tickVal), -8, yVal);
         p.stroke(TICK_COLOR);
-      }
+      });
 
       // --- Connect Lines  ---
       if (options.connect) {
@@ -1237,8 +1518,8 @@ function getAutoLabelColor(bgColor) {
           // Note: connecting assumes order in data array. 
           // If you need sorted, sort the DataFrame before passing.
           for(let i=0; i<xs.length; i++) {
-             let cx = p.map(xs[i], minX, maxX, 0, w);
-             let cy = p.map(ys[i], minY, maxY, h, 0);
+             let cx = p.map(xs[i], xAxis.min, xAxis.max, 0, w);
+             let cy = p.map(ys[i], yAxis.min, yAxis.max, h, 0);
              p.vertex(cx, cy);
           }
           p.endShape();
@@ -1249,12 +1530,15 @@ function getAutoLabelColor(bgColor) {
       const baseColor = options.baseColor || palette[0];
       
       for(let i=0; i<xs.length; i++) {
-          let cx = p.map(xs[i], minX, maxX, 0, w);
-          let cy = p.map(ys[i], minY, maxY, h, 0);
+          // Skip if x or y is NaN
+          if (isNaN(xs[i]) || isNaN(ys[i])) continue;
+          
+          let cx = p.map(xs[i], xAxis.min, xAxis.max, 0, w);
+          let cy = p.map(ys[i], yAxis.min, yAxis.max, h, 0);
           
           // 1. Determine Radius
           let r = fixedPtSz;
-          if (sizeCol && sizes[i] !== undefined) {
+          if (sizeCol && sizes[i] !== undefined && !isNaN(sizes[i])) {
              let norm = (sizes[i] - minS) / (maxS - minS || 1);
              r = p.map(norm, 0, 1, minPtSz, maxPtSz);
           }
@@ -1348,14 +1632,43 @@ function getAutoLabelColor(bgColor) {
 // 7. HISTOGRAM 
 // ==========================================
 
+/**
+ * Creates a histogram
+ * NaN Handling: Values are FILTERED OUT (excluded from binning).
+ * A warning is logged showing how many values were removed.
+ * Set nanPolicy: 'silent' to suppress warnings, or 'strict' to throw an error.
+ */
 p5.prototype.hist = function(data, options = {}) {
     const p = this;
     let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
     const col = options.x || options.column || df.columns[0];
     
+    // Validate data for NaN values BEFORE filtering
+    const allVals = df.col(col);
+    const originalCount = allVals.length;
+    
     // --- Data Preparation (Binning) ---
-    const vals = df.col(col).map(Number).filter(v => !isNaN(v));
+    const vals = allVals.map(Number).filter(v => !isNaN(v));
     if (vals.length === 0) return;
+    
+    // Report filtered values if policy is 'warn'
+    const filteredCount = originalCount - vals.length;
+    if (filteredCount > 0) {
+        const policy = options.nanPolicy || p5.prototype.chart.nanPolicy || 'warn';
+        if (policy === 'strict') {
+            throw new Error(
+                `[p5.chart.hist] Data contains ${filteredCount} NaN/null values in column '${col}'. ` +
+                `Set nanPolicy: 'warn' or 'silent' to handle automatically.`
+            );
+        } else if (policy === 'warn') {
+            console.warn(
+                `[p5.chart.hist] ⚠️ Data Quality Warning: ${filteredCount} of ${originalCount} values filtered out due to NaN/null.`,
+                `\n  Column: ${col}`,
+                `\n  Histogram will display ${vals.length} valid values.`,
+                `\n  To suppress this warning, set nanPolicy: 'silent' in chart options.`
+            );
+        }
+    }
     
     // Determine bounds and optimal bin size (Natural Bins)
     const requestedBins = options.bins || HIST_DEFAULT_BINS;
@@ -1438,19 +1751,21 @@ p5.prototype.hist = function(data, options = {}) {
     // Y-axis (Vertical line)
     p.line(0, 0, 0, h); 
     
-    // Y-ticks
+    // Calculate nice Y-axis bounds for count
+    const yAxis = niceAxisBounds(0, maxCount);
+    
+    // Y-ticks (using nice intervals)
     p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
-    for(let i = 0; i <= NUM_TICKS; i++) {
-        let yVal = h - (h / NUM_TICKS) * i;
-        let labelVal = (maxAxisVal / NUM_TICKS) * i;
+    yAxis.ticks.forEach(tickVal => {
+        let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
         p.line(-TICK_LENGTH, yVal, 0, yVal);
         
         // Ensure Y-axis labels have no stroke
         p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); 
         p.textAlign(p.RIGHT, p.CENTER);
-        p.text(labelVal, -8, yVal);
+        p.text(tickVal, -8, yVal);
         p.stroke(TICK_COLOR);
-    }
+    });
     
     // X-Ticks (At Edges)
     p.fill(TEXT_COLOR); p.textSize(TICK_LABEL_SIZE);
@@ -1520,7 +1835,7 @@ p5.prototype.hist = function(data, options = {}) {
 
     counts.forEach((count, i) => {
         const rectX = i * barW;
-        const rectH = p.map(count, 0, maxAxisVal, 0, h);
+        const rectH = p.map(count, yAxis.min, yAxis.max, 0, h);
         const rectY = h - rectH;
         
         // Tooltip Check
@@ -1590,11 +1905,21 @@ p5.prototype.hist = function(data, options = {}) {
   //       page: number - Current page number (0-indexed, for external control)
   //       onPageChange: function - Callback when page changes
   //     }
+  /**
+   * Creates an interactive data table
+   * NaN Handling: NaN/null values are DISPLAYED with visual indicator (grayed style).
+   * A warning is logged showing which cells contain NaN values.
+   * Set nanPolicy: 'silent' to suppress warnings.
+   * Set nanIndicator: false to disable visual styling of NaN cells.
+   */
   p5.prototype.table = function(data, options = {}) {
       const p = this;
       // Convert data to DataFrame if not already
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
       const id = options.id || 'p5chart_table';
+      
+      // Validate data for NaN values
+      const validation = validateData(df, df.columns, options, 'table');
       
       // Auto-enable searchable and pagination for tables with more than 10 rows
       const totalRowCount = df.rows.length;
@@ -1740,6 +2065,11 @@ p5.prototype.hist = function(data, options = {}) {
           
           // Draw cell values
           cols.forEach((c, j) => {
+              const cellValue = r[c];
+              const isNaN = cellValue === null || cellValue === '' || cellValue === undefined ||
+                           (typeof cellValue === 'number' && Number.isNaN(cellValue));
+              const showNaNIndicator = options.nanIndicator !== false;
+              
               // Show tooltip only if user provided a tooltip message
               if (tooltipMsg && hoveredCell && hoveredCell.row === i + 1 && hoveredCell.col === j) {
                   p.push();
@@ -1757,8 +2087,23 @@ p5.prototype.hist = function(data, options = {}) {
                   p.text(tooltipMsg, tooltipX + tooltipW/2, tooltipY + tooltipH/2);
                   p.pop();
               }
-              p.fill(cellTextColor);
-              p.text(truncate(p, r[c], colW-10), j*colW + 5, ry + rowH/2);
+              
+              // Visual indicator for NaN values
+              if (isNaN && showNaNIndicator) {
+                  // Gray background for NaN cell
+                  p.fill(220, 220, 220, 100);
+                  p.noStroke();
+                  p.rect(j*colW + 1, ry + 1, colW - 2, rowH - 2);
+                  
+                  // Gray text
+                  p.fill(150, 150, 150);
+                  p.textStyle(p.ITALIC);
+                  p.text('—', j*colW + 5, ry + rowH/2);
+                  p.textStyle(p.NORMAL);
+              } else {
+                  p.fill(cellTextColor);
+                  p.text(truncate(p, cellValue, colW-10), j*colW + 5, ry + rowH/2);
+              }
           });
         });
       // Draw table border
@@ -1854,6 +2199,12 @@ p5.prototype.hist = function(data, options = {}) {
   // 9. MAP (OpenStreetMap Integration)
   // ==========================================
   
+  /**
+   * Creates a map chart with geographic points
+   * NaN Handling: Points with NaN in lat/lon are SKIPPED (not drawn).
+   * A warning is logged showing how many points were skipped.
+   * Set nanPolicy: 'silent' to suppress warnings, or 'strict' to throw an error.
+   */
   p5.prototype.mapChart = function(data, options = {}) {
       const p = this;
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
@@ -1863,6 +2214,9 @@ p5.prototype.hist = function(data, options = {}) {
       const lonCol = options.lon || options.longitude || 'lon';
       const labelCol = options.label || 'label';
       const valueCol = options.value || 'value';
+      
+      // Validate data for NaN values
+      const validation = validateData(df, [latCol, lonCol], options, 'mapChart');
       
       // Auto-calculate center from data if not provided
       let autoCenterLat = 37.8;
@@ -1986,6 +2340,10 @@ p5.prototype.hist = function(data, options = {}) {
       df.rows.forEach(row => {
           let lat = Number(row[latCol]);
           let lon = Number(row[lonCol]);
+          
+          // Skip if lat/lon is NaN
+          if (isNaN(lat) || isNaN(lon)) return;
+          
           let pos = latLonToPixel(lat, lon);
           
           if (pos.x >= 0 && pos.x <= p.width && pos.y >= 0 && pos.y <= p.height) {
