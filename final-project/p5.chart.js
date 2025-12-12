@@ -28,6 +28,14 @@ function getAutoLabelColor(bgColor) {
   return lum > 0.6 ? '#111' : '#fff';
 }
 
+// Helper: Treat common CSS "transparent" values as a transparent background option.
+function isTransparentBackground(bg) {
+  if (bg === null) return true;
+  if (typeof bg !== 'string') return false;
+  const s = bg.trim().toLowerCase();
+  return s === 'transparent' || s === 'none' || s === 'rgba(0,0,0,0)' || s === 'rgba(0, 0, 0, 0)';
+}
+
 (function() {
 
   // ==========================================
@@ -241,15 +249,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         });
         return new p5.prototype.chart.DataFrame(filtered, this._columns);
     }
-    groupBy(col) {
-        let groups = {};
-        this._rows.forEach(r => {
-            let key = r[col];
-            if(!groups[key]) groups[key] = [];
-            groups[key].push(r);
-        });
-        return groups;
-    }
     // Transform a column by applying a function to each value
     transform(colName, fn) {
         this._rows.forEach(row => {
@@ -258,6 +257,21 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             }
         });
         return this;
+    }
+
+    // Add (or overwrite) a column.
+    // - If valueOrFn is a function: (row, index) => any
+    // - Otherwise: constant value assigned to every row
+    addColumn(colName, valueOrFn) {
+      if (!colName) throw new Error('addColumn: colName is required');
+      const isFn = typeof valueOrFn === 'function';
+      this._rows.forEach((row, i) => {
+        row[colName] = isFn ? valueOrFn(row, i) : valueOrFn;
+      });
+      if (!this._columns.includes(colName)) {
+        this._columns.push(colName);
+      }
+      return this;
     }
     // Rename a column
     rename(oldName, newName) {
@@ -288,16 +302,86 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         const keepCols = this._columns.filter(col => !columnNames.includes(col));
         return this.select(keepCols);
     }
-    // Group by column and apply aggregation function
-    group(colName, aggFunc) {
-        const groups = this.groupBy(colName);
-        const result = [];
-        for (let key in groups) {
-            const groupData = groups[key];
-            const aggregated = aggFunc(groupData);
-            result.push({ [colName]: key, ...aggregated });
+    // Group by one or more columns.
+    // Backwards compatible:
+    //   df.group('City', (rows) => ({ avg: ... }))
+    // Extended:
+    //   df.group(['Region','Category'], { Sales: 'sum', Quantity: 'mean' })
+    group(groupCols, agg) {
+      const keys = Array.isArray(groupCols) ? groupCols : [groupCols];
+      if (!keys || keys.length === 0 || !keys[0]) {
+        throw new Error('group: groupCols is required');
+      }
+
+      const SEP = '\u0000';
+      const groups = new Map();
+
+      for (const row of this._rows) {
+        const keyParts = keys.map(k => row[k]);
+        const mapKey = keyParts.map(v => String(v)).join(SEP);
+        let g = groups.get(mapKey);
+        if (!g) {
+          g = { keyParts, rows: [] };
+          groups.set(mapKey, g);
+        }
+        g.rows.push(row);
+      }
+
+      const result = [];
+
+      // 1) Function aggregator (original behavior)
+      if (typeof agg === 'function') {
+        for (const [, g] of groups) {
+          const aggregated = agg(g.rows);
+          result.push({ ...Object.fromEntries(keys.map((k, i) => [k, g.keyParts[i]])), ...aggregated });
         }
         return new p5.prototype.chart.DataFrame(result);
+      }
+
+      // 2) Aggregation map (new behavior)
+      if (!agg || typeof agg !== 'object') {
+        throw new Error('group: agg must be a function or an aggregation object');
+      }
+
+      const aggEntries = Object.entries(agg);
+      const toNumber = (v) => {
+        const num = Number(v);
+        return Number.isFinite(num) ? num : NaN;
+      };
+
+      for (const [, g] of groups) {
+        const outRow = {};
+        keys.forEach((k, i) => { outRow[k] = g.keyParts[i]; });
+
+        for (const [colName, op] of aggEntries) {
+          if (typeof op === 'function') {
+            outRow[colName] = op(g.rows.map(r => r[colName]), g.rows);
+            continue;
+          }
+
+          const values = g.rows.map(r => r[colName]).map(toNumber).filter(v => Number.isFinite(v));
+          const opName = String(op).toLowerCase();
+
+          if (opName === 'count') {
+            outRow[colName] = g.rows.length;
+          } else if (opName === 'sum') {
+            outRow[colName] = values.reduce((a, b) => a + b, 0);
+          } else if (opName === 'mean' || opName === 'avg') {
+            outRow[colName] = values.length ? values.reduce((a, b) => a + b, 0) / values.length : 0;
+          } else if (opName === 'min') {
+            outRow[colName] = values.length ? Math.min(...values) : 0;
+          } else if (opName === 'max') {
+            outRow[colName] = values.length ? Math.max(...values) : 0;
+          } else {
+            throw new Error(`group: unsupported aggregation "${op}" for column "${colName}"`);
+          }
+        }
+
+        result.push(outRow);
+      }
+
+      const resultColumns = [...keys, ...aggEntries.map(([c]) => c)];
+      return new p5.prototype.chart.DataFrame(result, resultColumns);
     }
     // Pivot table: create a cross-tabulation
     pivot(indexCol, columnCol, valueCol, aggFunc = 'sum') {
@@ -363,6 +447,34 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         
         return new p5.prototype.chart.DataFrame(sortedRows, this._columns);
     }
+
+      // Return the first n rows
+      head(n = 5) {
+        const count = Math.max(0, Number(n) || 0);
+        return new p5.prototype.chart.DataFrame(this._rows.slice(0, count), this._columns);
+      }
+
+      // Return the last n rows
+      tail(n = 5) {
+        const count = Math.max(0, Number(n) || 0);
+        return new p5.prototype.chart.DataFrame(this._rows.slice(Math.max(0, this._rows.length - count)), this._columns);
+      }
+
+      // Get unique values from a column (preserves first-seen order)
+      unique(colName) {
+        const seen = new Set();
+        const out = [];
+        for (const row of this._rows) {
+          const v = row ? row[colName] : undefined;
+          if (!seen.has(v)) {
+            seen.add(v);
+            out.push(v);
+          }
+        }
+        return out;
+      }
+
+
   };
 
   p5.prototype.createDataFrame = function(data, cols) { 
@@ -1186,6 +1298,17 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const axisLineGap = Math.round(3 * scale);
     const xLabelOffsetY = Math.round(40 * scale);
     const yLabelBaseOffsetX = -Math.round(30 * scale);
+
+    // Optional user padding offsets (do NOT replace auto layout; they shift it).
+    // yLabelX/yLabelY are treated as padding (delta) for the y-axis label.
+    const yLabelPadX = (opts && opts.yLabelX !== undefined && isFinite(Number(opts.yLabelX))) ? Number(opts.yLabelX) : 0;
+    const yLabelPadY = (opts && opts.yLabelY !== undefined && isFinite(Number(opts.yLabelY))) ? Number(opts.yLabelY) : 0;
+
+    // Optional internal measurement: width (in pixels) of the widest y-axis tick label.
+    // Charts can provide this via opts._yTickLabelW so the yLabel is padded past the ticks.
+    const yTickLabelW = (opts && opts._yTickLabelW !== undefined && isFinite(Number(opts._yTickLabelW)))
+      ? Math.max(0, Number(opts._yTickLabelW))
+      : 0;
     const outerPad = Math.round(10 * scale); // padding to canvas edge
     // Gap between plot edge and the y-axis label block.
     // This is separate from outerPad so you get BOTH:
@@ -1252,7 +1375,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
       // After rotation, the text block extends +/- (yHeight/2) along plot +x.
       // Keep the label fully outside the plot with a consistent gap.
-      const desiredOffset = -Math.round((yHeight / 2) + gapToPlot + gapToTicks);
+      const desiredOffset = -Math.round((yHeight / 2) + gapToPlot + gapToTicks + yTickLabelW);
       // Preserve the old default look for short labels (min -30px*scale).
       yOffsetX = Math.min(yLabelBaseOffsetX, desiredOffset);
     }
@@ -1284,7 +1407,8 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     if (yLines) {
       // Need enough margin so leftmost rotated text stays inside the canvas,
       // plus some padding from the left edge.
-      requiredLeft = Math.max(requiredLeft, (-yOffsetX) + (yHeight / 2) + outerPad);
+      const yTranslateX = yOffsetX + yLabelPadX;
+      requiredLeft = Math.max(requiredLeft, (-yTranslateX) + (yHeight / 2) + outerPad);
     }
 
     return {
@@ -1302,7 +1426,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         lines: yLines,
         height: yHeight,
         lineGap: axisLineGap,
-        offsetX: yOffsetX,
+        offsetX: yOffsetX + yLabelPadX,
         baseOffsetX: yLabelBaseOffsetX
       },
       footer: {
@@ -1343,8 +1467,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
     const scale = metaLayout.scale;
     const sidePad = Math.round(10 * scale);
-    const x0 = w + sidePad;
-    const y0 = 0;
+    const legendXOverride = (opts && opts.legendX !== undefined && isFinite(Number(opts.legendX))) ? Number(opts.legendX) : null;
+    const legendYOverride = (opts && opts.legendY !== undefined && isFinite(Number(opts.legendY))) ? Number(opts.legendY) : null;
+    const x0 = (legendXOverride !== null) ? legendXOverride : (w + sidePad);
+    const y0 = (legendYOverride !== null) ? legendYOverride : 0;
 
     if (metaLayout.legend.mode === 'gradient') {
       const ll = metaLayout.legend.layout;
@@ -1414,6 +1540,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const ll = metaLayout.legend.layout;
     if (!ll || !ll.rows || ll.rows.length === 0) return;
 
+    const legendXOverride = (opts && opts.legendX !== undefined && isFinite(Number(opts.legendX))) ? Number(opts.legendX) : null;
+    const legendYOverride = (opts && opts.legendY !== undefined && isFinite(Number(opts.legendY))) ? Number(opts.legendY) : null;
+
     const align = (opts && opts.textAlign) ? opts.textAlign : p.LEFT;
     const textColor = (opts && opts.legendTextColor) ? opts.legendTextColor : TEXT_COLOR;
 
@@ -1425,7 +1554,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     p.fill(textColor);
     p.textAlign(p.LEFT, p.CENTER);
 
-    const startY = metaLayout.legend.topY;
+    const startY = (legendYOverride !== null) ? legendYOverride : metaLayout.legend.topY;
     let y = startY;
 
     ll.rows.forEach(rowEntries => {
@@ -1442,6 +1571,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       if (align === p.CENTER) x = (w - rowW) / 2;
       else if (align === p.RIGHT) x = (w - rowW);
       x = Math.max(0, x);
+      if (legendXOverride !== null) x = legendXOverride;
 
       rowEntries.forEach((entry, i) => {
         const label = String(entry.label);
@@ -1478,12 +1608,15 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const c1 = g.c1;
     const c2 = g.c2;
 
-    const startY = metaLayout.legend.topY;
+    const legendXOverride = (opts && opts.legendX !== undefined && isFinite(Number(opts.legendX))) ? Number(opts.legendX) : null;
+    const legendYOverride = (opts && opts.legendY !== undefined && isFinite(Number(opts.legendY))) ? Number(opts.legendY) : null;
+    const startY = (legendYOverride !== null) ? legendYOverride : metaLayout.legend.topY;
 
     let x = 0;
     if (align === p.CENTER) x = (w - ll.barW) / 2;
     else if (align === p.RIGHT) x = (w - ll.barW);
     x = Math.max(0, x);
+    if (legendXOverride !== null) x = legendXOverride;
 
     p.push();
     p.noStroke();
@@ -1545,6 +1678,16 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       if (align === p.CENTER) xPos = w/2;
       if (align === p.RIGHT) xPos = w;
 
+      const titleXOverride = (opts && opts.titleX !== undefined && isFinite(Number(opts.titleX))) ? Number(opts.titleX) : null;
+      const titleYOverride = (opts && opts.titleY !== undefined && isFinite(Number(opts.titleY))) ? Number(opts.titleY) : null;
+      const subtitleXOverride = (opts && opts.subtitleX !== undefined && isFinite(Number(opts.subtitleX))) ? Number(opts.subtitleX) : null;
+      const subtitleYOverride = (opts && opts.subtitleY !== undefined && isFinite(Number(opts.subtitleY))) ? Number(opts.subtitleY) : null;
+      const xLabelXOverride = (opts && opts.xLabelX !== undefined && isFinite(Number(opts.xLabelX))) ? Number(opts.xLabelX) : null;
+      const xLabelYOverride = (opts && opts.xLabelY !== undefined && isFinite(Number(opts.xLabelY))) ? Number(opts.xLabelY) : null;
+      const yLabelPadY = (opts && opts.yLabelY !== undefined && isFinite(Number(opts.yLabelY))) ? Number(opts.yLabelY) : 0;
+      const sourceAuthorXOverride = (opts && opts.sourceAuthorX !== undefined && isFinite(Number(opts.sourceAuthorX))) ? Number(opts.sourceAuthorX) : null;
+      const sourceAuthorYOverride = (opts && opts.sourceAuthorY !== undefined && isFinite(Number(opts.sourceAuthorY))) ? Number(opts.sourceAuthorY) : null;
+
       // Title (wrapped by default; pushes plot down via margin calculation)
       if (opts.title && metaLayout.title && Array.isArray(metaLayout.title.lines) && titleTopY !== null) {
           p.fill(TEXT_COLOR);
@@ -1553,7 +1696,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.drawingContext.fontWeight = 'bold';
           p.textAlign(align, p.TOP);
           p.textLeading(titleSize + (metaLayout.title.lineGap || 0));
-          p.text(metaLayout.title.lines.join('\n'), xPos, titleTopY);
+          const tx = (titleXOverride !== null) ? titleXOverride : xPos;
+          const ty = (titleYOverride !== null) ? titleYOverride : titleTopY;
+          p.text(metaLayout.title.lines.join('\n'), tx, ty);
       }
 
       // Subtitle (wrapped by default; sits below title)
@@ -1564,7 +1709,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.textStyle(opts.subtitleBold ? p.BOLD : p.NORMAL);
           p.textAlign(align, p.TOP);
           p.textLeading(subtitleSize + (metaLayout.subtitle.lineGap || 0));
-          p.text(metaLayout.subtitle.lines.join('\n'), xPos, subtitleTopY);
+          const sx = (subtitleXOverride !== null) ? subtitleXOverride : xPos;
+          const sy = (subtitleYOverride !== null) ? subtitleYOverride : subtitleTopY;
+          p.text(metaLayout.subtitle.lines.join('\n'), sx, sy);
       }
 
       // Legend (global option; off by default)
@@ -1589,7 +1736,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           const footerLines = (axisLayout.footer.wrap === false)
             ? [String(axisLayout.footer.text)]
             : wrapTextLines(p, axisLayout.footer.text, Math.max(10, Math.round(w - Math.round(10 * scale) * 2)));
-          p.text(footerLines.join('\n'), 0, footerY);
+          const fx = (sourceAuthorXOverride !== null) ? sourceAuthorXOverride : 0;
+          const fy = (sourceAuthorYOverride !== null) ? sourceAuthorYOverride : footerY;
+          p.text(footerLines.join('\n'), fx, fy);
       }
       
         // X-axis label
@@ -1597,12 +1746,14 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.drawingContext.font = 'normal ' + axisLabelSize + 'px Roboto, sans-serif';
           p.fill(TEXT_COLOR); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
           const xLines = (axisLayout && axisLayout.x && Array.isArray(axisLayout.x.lines)) ? axisLayout.x.lines : [String(opts.xLabel)];
-          const xTop = (axisLayout && axisLayout.x)
+          const xTopAuto = (axisLayout && axisLayout.x)
             ? (h + axisLayout.x.topOffsetFromPlotBottom)
             : (h + (xLabelOffsetY - axisLabelSize));
+          const xTop = (xLabelYOverride !== null) ? xLabelYOverride : xTopAuto;
           p.textAlign(p.CENTER, p.TOP);
           p.textLeading(axisLabelSize + ((axisLayout && axisLayout.x && axisLayout.x.lineGap) ? axisLayout.x.lineGap : 0));
-          p.text(xLines.join('\n'), w/2, xTop);
+          const xx = (xLabelXOverride !== null) ? xLabelXOverride : (w/2);
+          p.text(xLines.join('\n'), xx, xTop);
         }
       
         // Y-axis label
@@ -1611,7 +1762,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.fill(TEXT_COLOR); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
           const yLines = (axisLayout && axisLayout.y && Array.isArray(axisLayout.y.lines)) ? axisLayout.y.lines : [String(opts.yLabel)];
           p.push();
-          p.translate(yLabelOffsetX, h/2);
+          // yLabelOffsetX already includes yLabelX padding via computeAxisLabelLayout().
+          const yx = yLabelOffsetX;
+          const yy = (h/2) + yLabelPadY;
+          p.translate(yx, yy);
           p.rotate(-p.HALF_PI);
           p.textAlign(p.CENTER, p.CENTER);
           p.textLeading(axisLabelSize + ((axisLayout && axisLayout.y && axisLayout.y.lineGap) ? axisLayout.y.lineGap : 0));
@@ -1775,6 +1929,34 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const labels = df.col(labelCol);
     const rows = df.rows;
 
+    // Precompute value axis ticks early so meta layout can reserve space for y-axis tick labels.
+    let maxVal = 0;
+    rows.forEach(row => {
+      let sum = stacked
+        ? valCols.reduce((acc, c) => acc + (Number(row[c]) || 0), 0)
+        : Math.max(...valCols.map(c => Number(row[c]) || 0));
+      if (sum > maxVal) maxVal = sum;
+    });
+    if (maxVal === 0) maxVal = 1;
+
+    const targetTicks = (options.numTicks !== undefined)
+      ? options.numTicks
+      : ((options.tickCount !== undefined) ? options.tickCount : NUM_TICKS);
+    const valueAxis = niceAxisBounds(0, maxVal, targetTicks);
+
+    function formatBarTick(val) {
+      const num = Number(val);
+      if (!isFinite(num)) return String(val);
+      // Show integers as integers, otherwise keep a minimal number of decimals.
+      if (Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num));
+      const absVal = Math.abs(num);
+      if (absVal >= 1000) return (num / 1000).toFixed(1) + 'k';
+      let decimals = 0;
+      let t = absVal;
+      while (t !== 0 && t < 1 && decimals < 6) { t *= 10; decimals++; }
+      return num.toFixed(Math.min(Math.max(decimals, 1), 3));
+    }
+
     // Calculate label space dynamically for horizontal bars
     let labelSpace = options.labelSpace;
     if (!labelSpace && orient === 'horizontal') {
@@ -1807,6 +1989,22 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
     const _responsiveScale = getResponsiveScale(p, options);
     const metaOpts = Object.assign({}, options, { _responsiveScale, _legendEntries: legendEntries, _legendColors: legendColors });
+
+    // Measure the widest y-axis tick label (vertical bars only) so yLabel doesn't overlap ticks.
+    if (orient === 'vertical') {
+      const tickLabelSizeForMeasure = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
+      p.push();
+      p.textSize(tickLabelSizeForMeasure);
+      p.textFont(options.font || DEFAULT_FONT);
+      p.textStyle(p.NORMAL);
+      let maxTickW = 0;
+      valueAxis.ticks.forEach(tickVal => {
+        const w0 = p.textWidth(formatBarTick(tickVal));
+        if (w0 > maxTickW) maxTickW = w0;
+      });
+      p.pop();
+      metaOpts._yTickLabelW = maxTickW;
+    }
 
     let margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
     margin0 = withMobileRightPadding(p, options, margin0);
@@ -1844,35 +2042,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     // Right-side vertical legend
     drawSideLegend(p, metaOpts, w, h);
 
-    let maxVal = 0;
-    rows.forEach(row => {
-      let sum = stacked 
-        ? valCols.reduce((acc, c) => acc + (Number(row[c])||0), 0)
-        : Math.max(...valCols.map(c => Number(row[c])||0));
-      if (sum > maxVal) maxVal = sum;
-    });
-    if (maxVal === 0) maxVal = 1;
+    // valueAxis and formatBarTick computed above (also used for meta measurements).
 
-    // Use "nice" axis bounds so tick labels are evenly spaced units.
-    const targetTicks = (options.numTicks !== undefined)
-      ? options.numTicks
-      : ((options.tickCount !== undefined) ? options.tickCount : NUM_TICKS);
-    const valueAxis = niceAxisBounds(0, maxVal, targetTicks);
-
-    function formatBarTick(val) {
-      const num = Number(val);
-      if (!isFinite(num)) return String(val);
-      // Show integers as integers, otherwise keep a minimal number of decimals.
-      if (Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num));
-      const absVal = Math.abs(num);
-      if (absVal >= 1000) return (num / 1000).toFixed(1) + 'k';
-      let decimals = 0;
-      let t = absVal;
-      while (t !== 0 && t < 1 && decimals < 6) { t *= 10; decimals++; }
-      return num.toFixed(Math.min(Math.max(decimals, 1), 3));
-    }
-
-    if (options.background !== undefined) {
+    if (options.background !== undefined && !isTransparentBackground(options.background)) {
       p.noStroke();
       p.fill(options.background);
       p.rect(0, 0, w, h);
@@ -1960,17 +2132,17 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                     p.fill(getAutoLabelColor(c));
                     p.text(txt, rectX + rectW - tw - 5, by + barH/2);
                   } else if (labelPos === 'outside') {
-                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.fill(getAutoLabelColor(isTransparentBackground(options.background) ? 255 : (options.background || 255)));
                     p.text(txt, rectX + rectW + 5, by + barH/2);
                   } else if (labelPos === 'bottom') {
-                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.fill(getAutoLabelColor(isTransparentBackground(options.background) ? 255 : (options.background || 255)));
                     p.text(txt, rectX + 5, by + barH/2);
                   } else if (labelPos === 'auto') {
                     if (rectW > tw + 10) {
                       p.fill(getAutoLabelColor(c));
                       p.text(txt, rectX + rectW - tw - 5, by + barH/2);
                     } else {
-                      p.fill(getAutoLabelColor(options.background || 255));
+                      p.fill(getAutoLabelColor(isTransparentBackground(options.background) ? 255 : (options.background || 255)));
                       p.text(txt, rectX + rectW + 5, by + barH/2);
                     }
                   }
@@ -2057,17 +2229,17 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                     p.fill(getAutoLabelColor(c));
                     p.text(txt, bx + barW/2, rectY + rectH - 5);
                   } else if (labelPos === 'outside') {
-                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.fill(getAutoLabelColor(isTransparentBackground(options.background) ? 255 : (options.background || 255)));
                     p.text(txt, bx + barW/2, rectY - 2);
                   } else if (labelPos === 'bottom') {
-                    p.fill(getAutoLabelColor(options.background || 255));
+                    p.fill(getAutoLabelColor(isTransparentBackground(options.background) ? 255 : (options.background || 255)));
                     p.text(txt, bx + barW/2, rectY + rectH + 2);
                   } else if (labelPos === 'auto') {
                     if (rectH > 20) {
                       p.fill(getAutoLabelColor(c));
                       p.text(txt, bx + barW/2, rectY + rectH - 5);
                     } else {
-                      p.fill(getAutoLabelColor(options.background || 255));
+                      p.fill(getAutoLabelColor(isTransparentBackground(options.background) ? 255 : (options.background || 255)));
                       p.text(txt, bx + barW/2, rectY - 2);
                     }
                   }
@@ -2313,9 +2485,18 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       // Donut Hole Drawing
       if (isDonut) {
         let hole = options.holeRadius || DONUT_HOLE_RADIUS;
-        p.fill(options.background || 255);
         p.noStroke();
-        p.ellipse(0, 0, r*2*hole, r*2*hole);
+        if (isTransparentBackground(options.background)) {
+          if (typeof p.erase === 'function') {
+            p.erase();
+            p.ellipse(0, 0, r*2*hole, r*2*hole);
+            p.noErase();
+          }
+          // If erase() is unavailable, skip hole fill (won't be transparent).
+        } else {
+          p.fill(options.background || 255);
+          p.ellipse(0, 0, r*2*hole, r*2*hole);
+        }
       }
 
       // --- Draw Labels & Connectors ---
@@ -2506,7 +2687,8 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const ptSz = options.pointSize || DEFAULT_POINT_SIZE;
       const lnSz = options.lineSize || DEFAULT_LINE_SIZE;
       const isHollow = options.pointStyle === 'hollow';
-      const bgColor = options.background || 255;
+      const isTransparentBg = isTransparentBackground(options.background);
+      const bgColor = isTransparentBg ? 255 : (options.background || 255);
       
       // OPTION: showValues
       // true    = Always visible (static)
@@ -2614,7 +2796,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
                   // 1. Draw Dot
                   p.strokeWeight(isHollow ? pointStrokeW : 0);
-                  if (isHollow) { p.stroke(c); p.fill(bgColor); } 
+                  if (isHollow) {
+                    p.stroke(c);
+                    if (isTransparentBg) p.noFill();
+                    else p.fill(bgColor);
+                  }
                   else { p.noStroke(); p.fill(c); }
 
                   if (isHover) {
@@ -2771,7 +2957,8 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
       // Config
       const isHollow = options.pointStyle === 'hollow';
-      const bgColor = options.background || 255;
+      const isTransparentBg = isTransparentBackground(options.background);
+      const bgColor = isTransparentBg ? 255 : (options.background || 255);
       const showVals = options.showValues !== undefined ? options.showValues : false;
       const lblPos = options.labelPos || 'auto';
       const palette = options.palette || p.chart.palette;
@@ -2932,10 +3119,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
           // Style Setup
             p.strokeWeight(isHollow ? pointStrokeW : 0);
-          if (isHollow) {
-              p.stroke(ptColor); 
-              p.fill(bgColor); 
-          } else {
+            if (isHollow) {
+              p.stroke(ptColor);
+              if (isTransparentBg) p.noFill();
+              else p.fill(bgColor);
+            } else {
               p.noStroke(); 
               p.fill(ptColor);
           }
@@ -3119,7 +3307,7 @@ p5.prototype.hist = function(data, options = {}) {
     const barW = w / finalBins; 
     
     // 1. Determine Background Luminance for Contrast
-    const bgColor = options.background || p.color(255); 
+    const bgColor = isTransparentBackground(options.background) ? p.color(255) : (options.background || p.color(255)); 
     const bg = p.color(bgColor);
     const bgLuminance = (p.red(bg) * 0.299 + p.green(bg) * 0.587 + p.blue(bg) * 0.114);
     

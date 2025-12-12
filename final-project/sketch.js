@@ -59,32 +59,23 @@ function makeDropdown(x, y, selectedValue, onChange) {
 
 function buildBarDataForRegionByCategory() {
   const metric = 'Sales';
-  const aggregatedRows = aggregateForBar(rawRows, 'Region', 'Category', CATEGORIES.slice(), metric);
-  return createDataFrame(aggregatedRows);
-}
+  // DataFrame pipeline:
+  // 1) Group by Region+Category and sum Sales
+  // 2) Pivot to wide format: one row per Region, one column per Category
+  // 3) Fill missing categories with 0 and keep Region ordering stable
+  const df = createDataFrame(rawRows);
+  const grouped = df.group(['Region', 'Category'], { [metric]: 'sum' });
+  const pivoted = grouped.pivot('Region', 'Category', metric, 'sum');
 
-function aggregateForBar(rows, xKey, seriesKey, seriesValues, metricKey) {
-  const totalsByX = new Map();
+  const byRegion = new Map(pivoted.rows.map(r => [r.Region, r]));
+  const orderedRows = REGIONS.map(region => byRegion.get(region) || ({ Region: region }));
+  orderedRows.forEach(r => {
+    CATEGORIES.forEach(cat => {
+      if (r[cat] === undefined) r[cat] = 0;
+    });
+  });
 
-  for (const row of rows) {
-    const xVal = row[xKey];
-    const sVal = row[seriesKey];
-    const metricVal = Number(row[metricKey]) || 0;
-
-    if (!totalsByX.has(xVal)) {
-      const seed = { [xKey]: xVal };
-      for (const s of seriesValues) seed[s] = 0;
-      totalsByX.set(xVal, seed);
-    }
-
-    const obj = totalsByX.get(xVal);
-    if (obj[sVal] === undefined) obj[sVal] = 0;
-    obj[sVal] += metricVal;
-  }
-
-  // Keep order stable (Region list / Category list) rather than Map iteration order.
-  const xOrder = xKey === 'Region' ? REGIONS : CATEGORIES;
-  return xOrder.filter(x => totalsByX.has(x)).map(x => totalsByX.get(x));
+  return createDataFrame(orderedRows);
 }
 
 function draw() {
