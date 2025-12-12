@@ -1,81 +1,124 @@
-let data;
-let sampleData;
+let rawRows;
+let dropdown;
+let currentMode = 'grouped'; // 'grouped' | 'stacked'
+
+let chartData;
+
+const CATEGORIES = ['Electronics', 'Clothing', 'Food', 'Books', 'Home', 'Sports', 'Toys', 'Health'];
+const REGIONS = ['North', 'South', 'East', 'West', 'Central'];
 
 function setup() {
   createCanvas(1200, 700);
-  
-  // Generate synthetic data with 200,000 rows
-  console.log('Generating 200,000 rows of data...');
-  let startTime = millis();
-  
-  const rows = [];
-  const categories = ['Electronics', 'Clothing', 'Food', 'Books', 'Home', 'Sports', 'Toys', 'Health'];
-  const regions = ['North', 'South', 'East', 'West', 'Central'];
-  
-  for (let i = 0; i < 200000; i++) {
-    rows.push({
-      'ID': i + 1,
-      'Category': categories[Math.floor(Math.random() * categories.length)],
-      'Region': regions[Math.floor(Math.random() * regions.length)],
-      'Sales': Math.floor(Math.random() * 10000),
-      'Quantity': Math.floor(Math.random() * 100) + 1,
-      'Rating': parseFloat((Math.random() * 5).toFixed(1))
+
+  // One dropdown: each view shows ONE chart (two total chart types)
+  dropdown = makeDropdown(20, 20, currentMode, (val) => {
+    currentMode = val;
+  });
+
+  // Generate synthetic data (2,000 rows)
+  console.log('Generating 2,000 rows of data...');
+  const startTime = millis();
+
+  rawRows = [];
+  for (let i = 0; i < 2000; i++) {
+    rawRows.push({
+      ID: i + 1,
+      Category: CATEGORIES[Math.floor(Math.random() * CATEGORIES.length)],
+      Region: REGIONS[Math.floor(Math.random() * REGIONS.length)],
+      Sales: Math.floor(Math.random() * 10000),
+      Quantity: Math.floor(Math.random() * 100) + 1,
+      Rating: parseFloat((Math.random() * 5).toFixed(1))
     });
   }
-  
-  // Convert to DataFrame
-  data = createDataFrame(rows);
-  
-  // Sample data for scatter plot (use 5000 points for performance)
-  const sampleSize = 5000;
-  const step = Math.floor(rows.length / sampleSize);
-  const sampledRows = [];
-  
-  for (let i = 0; i < rows.length; i += step) {
-    if (sampledRows.length < sampleSize) {
-      sampledRows.push(rows[i]);
-    }
-  }
-  
-  sampleData = createDataFrame(sampledRows);
-  
-  let endTime = millis();
+
+  const endTime = millis();
   console.log(`Data generation complete! Time: ${((endTime - startTime) / 1000).toFixed(2)}s`);
-  console.log(`Total rows: ${data.rows.length.toLocaleString()}`);
-  console.log(`Sampled to ${sampledRows.length} points for scatter plot`);
+  console.log(`Total rows: ${rawRows.length.toLocaleString()}`);
+
+  // Fixed breakdown for the single dropdown UX: X = Region, segments = Category
+  chartData = buildBarDataForRegionByCategory();
+}
+
+function makeDropdown(x, y, selectedValue, onChange) {
+  const dd = createSelect();
+  dd.position(x, y);
+  dd.option('Grouped Bars', 'grouped');
+  dd.option('Segmented (Stacked) Bars', 'stacked');
+  dd.selected(selectedValue);
+  dd.changed(() => onChange(dd.value()));
+
+  dd.style('padding', '8px 12px');
+  dd.style('font-size', '14px');
+  dd.style('font-family', 'Roboto, sans-serif');
+  dd.style('border', '2px solid #395B64');
+  dd.style('border-radius', '4px');
+  dd.style('background-color', 'white');
+  dd.style('cursor', 'pointer');
+  return dd;
+}
+
+function buildBarDataForRegionByCategory() {
+  const metric = 'Sales';
+  const aggregatedRows = aggregateForBar(rawRows, 'Region', 'Category', CATEGORIES.slice(), metric);
+  return createDataFrame(aggregatedRows);
+}
+
+function aggregateForBar(rows, xKey, seriesKey, seriesValues, metricKey) {
+  const totalsByX = new Map();
+
+  for (const row of rows) {
+    const xVal = row[xKey];
+    const sVal = row[seriesKey];
+    const metricVal = Number(row[metricKey]) || 0;
+
+    if (!totalsByX.has(xVal)) {
+      const seed = { [xKey]: xVal };
+      for (const s of seriesValues) seed[s] = 0;
+      totalsByX.set(xVal, seed);
+    }
+
+    const obj = totalsByX.get(xVal);
+    if (obj[sVal] === undefined) obj[sVal] = 0;
+    obj[sVal] += metricVal;
+  }
+
+  // Keep order stable (Region list / Category list) rather than Map iteration order.
+  const xOrder = xKey === 'Region' ? REGIONS : CATEGORIES;
+  return xOrder.filter(x => totalsByX.has(x)).map(x => totalsByX.get(x));
 }
 
 function draw() {
-  background(255);
-  
-  // Display scatter plot with sampled data
-  scatter(sampleData, {
-    x: 'Quantity',
-    y: 'Sales',
-    color: 'Category',
-    size: 'Rating',
-    title: 'Sales vs Quantity Analysis',
-    subtitle: `Showing ${sampleData.rows.length.toLocaleString()} sampled points from 200K transactions`,
-    xLabel: 'Quantity',
-    yLabel: 'Sales ($)',
-    pointSize: 6,
-    minSize: 4,
-    maxSize: 12
+  background(245);
+  if (!chartData) return;
+
+  const topOffset = 70;
+  const leftPad = 20;
+  const chartW = width - leftPad * 2;
+  const chartH = height - topOffset - 20;
+
+  push();
+  translate(leftPad, topOffset);
+  bar(chartData, {
+    x: 'Region',
+    y: CATEGORIES.slice(),
+    orientation: 'vertical',
+    mode: currentMode,
+    title: currentMode === 'grouped' ? 'Grouped Bars' : 'Segmented (Stacked) Bars',
+    subtitle: 'Totals by Region (segments = Category)',
+    xLabel: 'Region',
+    yLabel: 'Total Sales',
+    labelPos: 'none',
+    width: chartW,
+    height: chartH,
+    margin: { top: 90, right: 30, bottom: 80, left: 80 },
+    showGrid: true,
+    hoverEffect: true
   });
-  
-  // Display data info
+  pop();
+
   fill(0);
   noStroke();
   textSize(10);
   textAlign(RIGHT, TOP);
-  text(`Source: ${data.rows.length.toLocaleString()} rows | Press "C" to export CSV`, width - 10, 10);
-}
-
-function keyPressed() {
-  // Press 'C' to export data as CSV
-  if (key === 'c' || key === 'C') {
-    console.log('Exporting 200,000 rows to CSV...');
-    toCSV(data, 'large-dataset-200k.csv');
-    console.log('Export complete!');
-  }
+  text(`Source: ${rawRows.length.toLocaleString()} synthetic rows`, width - 10, 10);
 }

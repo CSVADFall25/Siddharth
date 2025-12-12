@@ -1,7 +1,7 @@
 let df;
 
 function setup() {
-  createCanvas(800, 600);
+  createCanvas(800, 700);
 
   // 1. Create Data Manually
   // We use an array of objects where keys match the 'x' and 'y' options
@@ -34,11 +34,12 @@ function draw() {
     // 2. TEXT & METADATA
     // ---------------------------
     title: "Comprehensive Series Plot of The World Today and More More More Yay", // Chart Title
-    subtitle: "Analysis of Trends over Time", // Subtitle
+    subtitle: "Analysis of Trends over Time Analysis of Trends over TimeAnalysis of Trends over Time Analysis of Trends over Time Analysis of Trends over Time", // Subtitle
     author: "Data Science Team",      // Footer: Author
     source: "Sensor Array #4",        // Footer: Source
-    xLabel: "Timeline (Years)",       // X-axis Label (defaults to column name if omitted)
-    yLabel: "Amplitude (dB)",         // Y-axis Label (defaults to column name if omitted)
+    xLabel: "Timeline (Years) Timeline (Years) Timeline (Years) Timeline (Years) Timeline (Years) Timeline (Years) Timeline (Years) Timeline (Years) Timeline (Years) Timeline (Years)",       // X-axis Label (defaults to column name if omitted)
+    yLabel: "Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB) Amplitude (dB)",         // Y-axis Label (defaults to column name if omitted)
+    legend: "horizontal",        // Legend position: 'horizontal', 'vertical', or false (no legend)
 
     // ---------------------------
     // 3. GEOMETRY & STYLING
@@ -77,6 +78,7 @@ function draw() {
     titleSize: 24,          // Title font size
     subtitleSize: 14,       // Subtitle font size
     subtitleBold: false,    // Bold subtitle?
+    showSourceAuthor: true,
 
     // ---------------------------
     // 6. DEBUG

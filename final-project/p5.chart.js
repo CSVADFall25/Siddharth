@@ -757,23 +757,786 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     return m;
   }
 
+  function normalizeLegendSpec(legend) {
+    if (!legend) return { enabled: false, layout: 'horizontal' };
+
+    if (legend === true) return { enabled: true, layout: 'horizontal' };
+    if (legend === 'horizontal') return { enabled: true, layout: 'horizontal' };
+    if (legend === 'vertical') return { enabled: true, layout: 'vertical' };
+
+    if (typeof legend === 'object') {
+      const enabled = (legend.enabled !== undefined) ? !!legend.enabled : true;
+      const layoutRaw = legend.layout || legend.orientation || legend.direction;
+      const layout = (layoutRaw === 'vertical') ? 'vertical' : 'horizontal';
+      return { enabled, layout };
+    }
+
+    return { enabled: false, layout: 'horizontal' };
+  }
+
+  function getLegendEntriesFromOptions(p, opts) {
+    if (!opts) return [];
+
+    const palette = opts.palette || (p && p.chart ? p.chart.palette : undefined);
+
+    // 1) Internal precomputed legend (preferred when available)
+    if (Array.isArray(opts._legendEntries) && opts._legendEntries.length > 0) {
+      const colors = Array.isArray(opts._legendColors) ? opts._legendColors : [];
+      return opts._legendEntries
+        .map((label, i) => ({
+          label: String(label),
+          color: colors[i] !== undefined ? colors[i] : getColor(p, i, palette)
+        }))
+        .filter(e => e.label.trim().length > 0);
+    }
+
+    // 2) Public API: legendItems: [{label,color}] | [{name,color}] | ["Label", ...]
+    const legendItems = (opts.legend && typeof opts.legend === 'object' && Array.isArray(opts.legend.items))
+      ? opts.legend.items
+      : opts.legendItems;
+    if (Array.isArray(legendItems) && legendItems.length > 0) {
+      return legendItems
+        .map((it, i) => {
+          if (it == null) return null;
+          if (typeof it === 'string' || typeof it === 'number') {
+            return { label: String(it), color: getColor(p, i, palette) };
+          }
+          if (typeof it === 'object') {
+            const label = (it.label !== undefined) ? it.label : it.name;
+            const color = (it.color !== undefined) ? it.color : getColor(p, i, palette);
+            if (label === undefined) return null;
+            return { label: String(label), color };
+          }
+          return null;
+        })
+        .filter(Boolean)
+        .filter(e => e.label.trim().length > 0);
+    }
+
+    // 3) Public API: legendLabels + legendColors
+    if (Array.isArray(opts.legendLabels) && opts.legendLabels.length > 0) {
+      const colors = Array.isArray(opts.legendColors) ? opts.legendColors : (Array.isArray(opts.colors) ? opts.colors : []);
+      return opts.legendLabels
+        .map((label, i) => ({
+          label: String(label),
+          color: colors[i] !== undefined ? colors[i] : getColor(p, i, palette)
+        }))
+        .filter(e => e.label.trim().length > 0);
+    }
+
+    // 4) Heuristic: multi-series charts commonly pass y as an array
+    if (Array.isArray(opts.y) && opts.y.length > 1) {
+      return opts.y
+        .map((label, i) => ({ label: String(label), color: getColor(p, i, palette) }))
+        .filter(e => e.label.trim().length > 0);
+    }
+
+    return [];
+  }
+
+  function computeLegendLayout(p, opts, w, entries, legendSpec) {
+    const enabled = !!(legendSpec && legendSpec.enabled);
+    if (!enabled || !entries || entries.length === 0) {
+      return { enabled: false, layout: 'horizontal', rows: [], height: 0, boxSize: 0, textSize: 0, gap: 0, itemGap: 0, rowGap: 0 };
+    }
+
+    const scale = (opts && typeof opts._responsiveScale === 'number')
+      ? opts._responsiveScale
+      : getResponsiveScale(p, opts);
+
+    const textSize = (opts && opts.legendTextSize) ? opts.legendTextSize : Math.round(11 * scale);
+    const boxSize = (opts && opts.legendBoxSize) ? opts.legendBoxSize : Math.round(10 * scale);
+    const gap = Math.round(8 * scale);
+    const itemGap = Math.round(14 * scale);
+    const rowGap = Math.round(6 * scale);
+    const itemH = Math.max(textSize, boxSize) + Math.round(2 * scale);
+
+    p.push();
+    p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+    p.textSize(textSize);
+    p.textStyle(p.NORMAL);
+
+    const rows = [];
+    const layout = (legendSpec.layout === 'vertical') ? 'vertical' : 'horizontal';
+
+    if (layout === 'vertical') {
+      // One item per row (true vertical legend)
+      entries.forEach(entry => rows.push([entry]));
+    } else {
+      let row = [];
+      let rowW = 0;
+      const maxW = Math.max(10, w);
+
+      entries.forEach((entry, i) => {
+        const labelW = p.textWidth(String(entry.label));
+        const itemW = boxSize + gap + labelW + itemGap;
+        const nextW = rowW + (row.length ? itemW : (itemW));
+
+        if (row.length > 0 && nextW > maxW) {
+          rows.push(row);
+          row = [entry];
+          rowW = itemW;
+        } else {
+          row.push(entry);
+          rowW = nextW;
+        }
+      });
+      if (row.length) rows.push(row);
+    }
+
+    p.pop();
+
+    const rowCount = rows.length;
+    const height = rowCount * itemH + Math.max(0, rowCount - 1) * rowGap;
+
+    return { enabled: true, layout, rows, height, boxSize, textSize, gap, itemGap, rowGap, itemH };
+  }
+
+  function formatLegendNumber(val) {
+    const num = Number(val);
+    if (!isFinite(num)) return String(val);
+    if (Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num));
+    const absVal = Math.abs(num);
+    if (absVal >= 1000) return (num / 1000).toFixed(1) + 'k';
+    if (absVal >= 10) return num.toFixed(1);
+    return num.toFixed(2);
+  }
+
+  function wrapTextLines(p, text, maxW) {
+    const raw = String(text);
+    if (!raw) return [''];
+    const paragraphs = raw.split(/\r?\n/);
+    const out = [];
+
+    const pushWrappedWord = (word) => {
+      // Break a single long "word" into chunks that fit.
+      let chunk = '';
+      for (let i = 0; i < word.length; i++) {
+        const next = chunk + word[i];
+        if (chunk.length > 0 && p.textWidth(next) > maxW) {
+          out.push(chunk);
+          chunk = word[i];
+        } else {
+          chunk = next;
+        }
+      }
+      if (chunk.length) out.push(chunk);
+    };
+
+    paragraphs.forEach(par => {
+      const trimmed = par.trim();
+      if (!trimmed) {
+        out.push('');
+        return;
+      }
+
+      const words = trimmed.split(/\s+/);
+      let line = '';
+
+      words.forEach(word => {
+        const candidate = line ? (line + ' ' + word) : word;
+
+        if (p.textWidth(candidate) <= maxW) {
+          line = candidate;
+          return;
+        }
+
+        // Candidate doesn't fit.
+        if (line) out.push(line);
+
+        if (p.textWidth(word) <= maxW) {
+          line = word;
+        } else {
+          // Word itself doesn't fit; split it.
+          pushWrappedWord(word);
+          line = '';
+        }
+      });
+
+      if (line) out.push(line);
+    });
+
+    return out.length ? out : [''];
+  }
+
+  function computeLegendGradientLayout(p, opts, w, legendSpec) {
+    const enabled = !!(legendSpec && legendSpec.enabled);
+    if (!enabled) return { enabled: false, height: 0 };
+
+    const scale = (opts && typeof opts._responsiveScale === 'number')
+      ? opts._responsiveScale
+      : getResponsiveScale(p, opts);
+
+    const textSize = (opts && opts.legendTextSize) ? opts.legendTextSize : Math.round(11 * scale);
+    const barH = (opts && opts.legendBarHeight) ? opts.legendBarHeight : Math.round(10 * scale);
+    const gap = Math.round(6 * scale);
+    const barW = (opts && opts.legendBarWidth)
+      ? opts.legendBarWidth
+      : Math.min(Math.max(60, Math.round(220 * scale)), Math.max(60, w));
+
+    const height = barH + gap + textSize;
+    return { enabled: true, textSize, barH, barW, gap, height };
+  }
+
+  function computeSideLegendItemsLayout(p, opts, entries, legendSpec) {
+    const enabled = !!(legendSpec && legendSpec.enabled);
+    if (!enabled || !entries || entries.length === 0) return { enabled: false, width: 0, height: 0 };
+
+    const scale = (opts && typeof opts._responsiveScale === 'number')
+      ? opts._responsiveScale
+      : getResponsiveScale(p, opts);
+
+    const textSize = (opts && opts.legendTextSize) ? opts.legendTextSize : Math.round(11 * scale);
+    const boxSize = (opts && opts.legendBoxSize) ? opts.legendBoxSize : Math.round(10 * scale);
+    const gap = Math.round(8 * scale);
+    const rowGap = Math.round(6 * scale);
+    const itemH = Math.max(textSize, boxSize) + Math.round(2 * scale);
+
+    p.push();
+    p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+    p.textSize(textSize);
+    p.textStyle(p.NORMAL);
+    let maxLabelW = 0;
+    entries.forEach(entry => {
+      const w0 = p.textWidth(String(entry.label));
+      if (w0 > maxLabelW) maxLabelW = w0;
+    });
+    p.pop();
+
+    const width = boxSize + gap + maxLabelW;
+    const height = entries.length * itemH + Math.max(0, entries.length - 1) * rowGap;
+
+    return { enabled: true, textSize, boxSize, gap, rowGap, itemH, width, height };
+  }
+
+  function computeMetaLayout(p, opts, w) {
+    const scale = (opts && typeof opts._responsiveScale === 'number')
+      ? opts._responsiveScale
+      : getResponsiveScale(p, opts);
+
+    const titleSize = (opts && opts.titleSize) ? opts.titleSize : Math.round(TITLE_SIZE * scale);
+    const subtitleSize = (opts && opts.subtitleSize) ? opts.subtitleSize : Math.round(SUBTITLE_SIZE * scale);
+
+    const legendSpec = normalizeLegendSpec(opts && opts.legend);
+    const entries = getLegendEntriesFromOptions(p, opts);
+
+    const gradientSpec = (opts && opts._legendGradient) ? opts._legendGradient : null;
+    const useGradient = !!(legendSpec.enabled && gradientSpec && (!entries || entries.length === 0));
+
+    // Legend positioning:
+    // - horizontal (default): top/meta area, under subtitle
+    // - vertical: right side of plot (uses right margin)
+    const isSideLegend = (legendSpec.layout === 'vertical');
+
+    const legendLayout = isSideLegend
+      ? (useGradient
+          ? computeLegendGradientLayout(p, opts, Math.max(60, Math.round(220 * scale)), legendSpec)
+          : computeSideLegendItemsLayout(p, opts, entries, legendSpec))
+      : (useGradient
+          ? computeLegendGradientLayout(p, opts, w, legendSpec)
+          : computeLegendLayout(p, opts, w, entries, legendSpec));
+
+    const metaPadTop = Math.round(10 * scale);
+    const metaGap = Math.round(6 * scale);
+    const plotPad = Math.round(4 * scale);
+    const metaPad = Math.round(10 * scale);
+    const maxMetaW = Math.max(10, w - metaPad * 2);
+    const titleLineGap = Math.round(3 * scale);
+    const subtitleLineGap = Math.round(3 * scale);
+
+    // Title/subtitle wrapping (default on).
+    let titleLines = null;
+    let subtitleLines = null;
+    let titleHeight = 0;
+    let subtitleHeight = 0;
+    const titleWrap = !(opts && opts.titleWrap === false);
+    const subtitleWrap = !(opts && opts.subtitleWrap === false);
+
+    p.push();
+    p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+
+    if (opts && opts.title) {
+      p.textSize(titleSize);
+      p.textStyle(p.BOLD);
+      titleLines = titleWrap ? wrapTextLines(p, opts.title, maxMetaW) : [String(opts.title)];
+      titleHeight = titleLines.length * titleSize + Math.max(0, titleLines.length - 1) * titleLineGap;
+    }
+    if (opts && opts.subtitle) {
+      p.textSize(subtitleSize);
+      p.textStyle((opts && opts.subtitleBold) ? p.BOLD : p.NORMAL);
+      subtitleLines = subtitleWrap ? wrapTextLines(p, opts.subtitle, maxMetaW) : [String(opts.subtitle)];
+      subtitleHeight = subtitleLines.length * subtitleSize + Math.max(0, subtitleLines.length - 1) * subtitleLineGap;
+    }
+
+    p.pop();
+
+    // Vertical legends render on the right and do not participate in top meta flow.
+    // Horizontal legends live in the top meta flow, directly above the plot.
+    let legendTopY = null;
+    let legendBottomY = null;
+
+    let yCursor = -plotPad;
+    if (legendLayout.enabled && !isSideLegend) {
+      legendBottomY = yCursor;
+      legendTopY = legendBottomY - legendLayout.height;
+      yCursor = legendTopY - metaGap;
+    }
+
+    let subtitleTopY = null;
+    if (subtitleLines) {
+      subtitleTopY = yCursor - subtitleHeight;
+      yCursor = subtitleTopY - metaGap;
+    }
+
+    let titleTopY = null;
+    if (titleLines) {
+      titleTopY = yCursor - titleHeight;
+      yCursor = titleTopY - metaGap;
+    }
+
+    // Compute required top space to avoid clipping.
+    let topmostY = 0;
+    if (titleTopY !== null) topmostY = Math.min(topmostY, titleTopY);
+    if (subtitleTopY !== null) topmostY = Math.min(topmostY, subtitleTopY);
+    if (!isSideLegend && legendTopY !== null) topmostY = Math.min(topmostY, legendTopY);
+    const requiredTop = Math.max(0, -topmostY + metaPadTop);
+
+    return {
+      scale,
+      titleSize,
+      subtitleSize,
+      title: {
+        lines: titleLines,
+        topY: titleTopY,
+        height: titleHeight,
+        lineGap: titleLineGap
+      },
+      subtitle: {
+        lines: subtitleLines,
+        topY: subtitleTopY,
+        height: subtitleHeight,
+        lineGap: subtitleLineGap
+      },
+      legend: {
+        enabled: legendLayout.enabled,
+        position: isSideLegend ? 'right' : 'top',
+        mode: useGradient ? 'gradient' : 'items',
+        entries,
+        gradient: useGradient ? gradientSpec : null,
+        layout: legendLayout,
+        topY: legendTopY,
+        bottomY: legendBottomY
+      },
+      requiredTop
+    };
+  }
+
+  function ensureMetaTopMargin(p, opts, margin, plotW) {
+    try {
+      const layout = computeMetaLayout(p, opts, plotW);
+      if (!layout || !isFinite(layout.requiredTop)) return margin;
+      if (margin && typeof margin.top === 'number' && margin.top >= layout.requiredTop) return margin;
+      return Object.assign({}, margin, { top: Math.max((margin && margin.top) ? margin.top : 0, layout.requiredTop) });
+    } catch (e) {
+      return margin;
+    }
+  }
+
+  function ensureMetaRightMargin(p, opts, margin) {
+    try {
+      const legendSpec = normalizeLegendSpec(opts && opts.legend);
+      if (!legendSpec.enabled || legendSpec.layout !== 'vertical') return margin;
+
+      const scale = (opts && typeof opts._responsiveScale === 'number')
+        ? opts._responsiveScale
+        : getResponsiveScale(p, opts);
+      const sidePad = Math.round(10 * scale);
+
+      const entries = getLegendEntriesFromOptions(p, opts);
+      const gradientSpec = (opts && opts._legendGradient) ? opts._legendGradient : null;
+      const useGradient = !!(gradientSpec && (!entries || entries.length === 0));
+
+      const layout = useGradient
+        ? computeLegendGradientLayout(p, opts, Math.max(60, Math.round(220 * scale)), legendSpec)
+        : computeSideLegendItemsLayout(p, opts, entries, legendSpec);
+
+      if (!layout || !layout.enabled) return margin;
+      const legendW = (layout.width !== undefined) ? layout.width : layout.barW;
+      const neededRight = sidePad * 2 + Math.ceil(legendW || 0);
+      if (!isFinite(neededRight) || neededRight <= 0) return margin;
+
+      return Object.assign({}, margin, { right: Math.max((margin && margin.right) ? margin.right : 0, neededRight) });
+    } catch (e) {
+      return margin;
+    }
+  }
+
+  function computeAxisLabelLayout(p, opts, plotW, plotH) {
+    const scale = (opts && typeof opts._responsiveScale === 'number')
+      ? opts._responsiveScale
+      : getResponsiveScale(p, opts);
+
+    const axisLabelSize = (opts && opts.axisLabelSize) ? opts.axisLabelSize : Math.round(AXIS_LABEL_SIZE * scale);
+    // Bigger footer text by default.
+    const sourceAuthorSize = (opts && opts.sourceAuthorSize)
+      ? opts.sourceAuthorSize
+      : (Math.round(SOURCE_AUTHOR_SIZE * scale) + 4);
+
+    const metaPad = Math.round(10 * scale);
+    const axisLineGap = Math.round(3 * scale);
+    const xLabelOffsetY = Math.round(40 * scale);
+    const yLabelBaseOffsetX = -Math.round(30 * scale);
+    const outerPad = Math.round(10 * scale); // padding to canvas edge
+    // Gap between plot edge and the y-axis label block.
+    // This is separate from outerPad so you get BOTH:
+    // (1) space from canvas edge, and (2) space from the chart/ticks.
+    const gapToPlot = (opts && opts.yLabelGapToPlot !== undefined)
+      ? Math.max(0, Number(opts.yLabelGapToPlot))
+      : Math.round(18 * scale);
+
+    // Extra gap between the y-axis label and the y-axis tick numbers.
+    // (Tick numbers are typically drawn just left of the axis line.)
+    const gapToTicks = (opts && opts.yLabelGapToTicks !== undefined)
+      ? Math.max(0, Number(opts.yLabelGapToTicks))
+      : Math.round(10 * scale);
+
+    const xLabelWrap = !(opts && opts.xLabelWrap === false);
+    const yLabelWrap = !(opts && opts.yLabelWrap === false);
+    const footerWrap = !(opts && opts.sourceAuthorWrap === false);
+    const footerEnabled = !!(opts && opts.showSourceAuthor);
+
+    const xLabelText = (opts && opts.xLabel !== undefined && opts.xLabel !== null) ? String(opts.xLabel) : null;
+    const yLabelText = (opts && opts.yLabel !== undefined && opts.yLabel !== null) ? String(opts.yLabel) : null;
+
+    let footerText = null;
+    if (footerEnabled && opts && (opts.source || opts.author)) {
+      let t = '';
+      if (opts.source) t += `Source: ${opts.source}`;
+      if (opts.author) {
+        if (opts.source) t += '  |  ';
+        t += `Chart: ${opts.author}`;
+      }
+      footerText = t;
+    }
+
+    let xLines = null;
+    let xHeight = 0;
+    let xTopOffset = 0;
+    if (xLabelText) {
+      p.push();
+      p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+      p.textSize(axisLabelSize);
+      p.textStyle(p.NORMAL);
+      const maxW = Math.max(10, Math.round(plotW - metaPad * 2));
+      xLines = xLabelWrap ? wrapTextLines(p, xLabelText, maxW) : [xLabelText];
+      xHeight = xLines.length * axisLabelSize + Math.max(0, xLines.length - 1) * axisLineGap;
+      p.pop();
+
+      // Previous single-line baseline used: y = h + xLabelOffsetY (with BOTTOM alignment).
+      // Convert to TOP-aligned starting Y: yTop = h + (xLabelOffsetY - axisLabelSize).
+      xTopOffset = xLabelOffsetY - axisLabelSize;
+    }
+
+    let yLines = null;
+    let yHeight = 0;
+    let yOffsetX = yLabelBaseOffsetX;
+    if (yLabelText) {
+      p.push();
+      p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+      p.textSize(axisLabelSize);
+      p.textStyle(p.NORMAL);
+      const maxW = Math.max(10, Math.round(plotH - metaPad * 2));
+      yLines = yLabelWrap ? wrapTextLines(p, yLabelText, maxW) : [yLabelText];
+      yHeight = yLines.length * axisLabelSize + Math.max(0, yLines.length - 1) * axisLineGap;
+      p.pop();
+
+      // After rotation, the text block extends +/- (yHeight/2) along plot +x.
+      // Keep the label fully outside the plot with a consistent gap.
+      const desiredOffset = -Math.round((yHeight / 2) + gapToPlot + gapToTicks);
+      // Preserve the old default look for short labels (min -30px*scale).
+      yOffsetX = Math.min(yLabelBaseOffsetX, desiredOffset);
+    }
+
+    let requiredBottom = 0;
+    if (xLines) {
+      requiredBottom = Math.max(requiredBottom, xTopOffset + xHeight + outerPad);
+    }
+    if (footerText) {
+      // Footer sits below xLabel if present.
+      const footerBase = (opts.xLabel || opts.yLabel) ? Math.round(50 * scale) : Math.round(30 * scale);
+      let footerOffset = footerBase;
+      if (xLines) footerOffset = Math.max(footerOffset, xTopOffset + xHeight + outerPad);
+
+      p.push();
+      p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+      p.textSize(sourceAuthorSize);
+      p.textStyle(p.NORMAL);
+      const footerMaxW = Math.max(10, Math.round(plotW - metaPad * 2));
+      const footerLines = footerWrap ? wrapTextLines(p, footerText, footerMaxW) : [footerText];
+      const footerLineGap = Math.round(3 * scale);
+      const footerHeight = footerLines.length * sourceAuthorSize + Math.max(0, footerLines.length - 1) * footerLineGap;
+      p.pop();
+
+      requiredBottom = Math.max(requiredBottom, footerOffset + footerHeight + outerPad);
+    }
+
+    let requiredLeft = 0;
+    if (yLines) {
+      // Need enough margin so leftmost rotated text stays inside the canvas,
+      // plus some padding from the left edge.
+      requiredLeft = Math.max(requiredLeft, (-yOffsetX) + (yHeight / 2) + outerPad);
+    }
+
+    return {
+      scale,
+      axisLabelSize,
+      sourceAuthorSize,
+      x: {
+        lines: xLines,
+        height: xHeight,
+        lineGap: axisLineGap,
+        topOffsetFromPlotBottom: xTopOffset,
+        offsetY: xLabelOffsetY
+      },
+      y: {
+        lines: yLines,
+        height: yHeight,
+        lineGap: axisLineGap,
+        offsetX: yOffsetX,
+        baseOffsetX: yLabelBaseOffsetX
+      },
+      footer: {
+        enabled: !!footerText,
+        text: footerText,
+        wrap: footerWrap
+      },
+      requiredBottom,
+      requiredLeft
+    };
+  }
+
+  function ensureMetaAxisMargins(p, opts, margin, baseW, baseH) {
+    try {
+      let m = Object.assign({}, margin);
+      for (let i = 0; i < 2; i++) {
+        const plotW = Math.max(10, baseW - m.left - m.right);
+        const plotH = Math.max(10, baseH - m.top - m.bottom);
+        const ax = computeAxisLabelLayout(p, opts, plotW, plotH);
+        if (!ax) return m;
+        if (isFinite(ax.requiredLeft) && ax.requiredLeft > 0) {
+          m.left = Math.max(m.left || 0, ax.requiredLeft);
+        }
+        if (isFinite(ax.requiredBottom) && ax.requiredBottom > 0) {
+          m.bottom = Math.max(m.bottom || 0, ax.requiredBottom);
+        }
+      }
+      return m;
+    } catch (e) {
+      return margin;
+    }
+  }
+
+  function drawSideLegend(p, opts, w, h) {
+    const metaLayout = computeMetaLayout(p, opts, w);
+    if (!metaLayout || !metaLayout.legend || !metaLayout.legend.enabled) return;
+    if (metaLayout.legend.position !== 'right') return;
+
+    const scale = metaLayout.scale;
+    const sidePad = Math.round(10 * scale);
+    const x0 = w + sidePad;
+    const y0 = 0;
+
+    if (metaLayout.legend.mode === 'gradient') {
+      const ll = metaLayout.legend.layout;
+      const g = metaLayout.legend.gradient;
+      if (!ll || !g) return;
+
+      const textColor = (opts && opts.legendTextColor) ? opts.legendTextColor : TEXT_COLOR;
+      const minLabel = (g.minLabel !== undefined) ? String(g.minLabel) : formatLegendNumber(g.min);
+      const maxLabel = (g.maxLabel !== undefined) ? String(g.maxLabel) : formatLegendNumber(g.max);
+
+      p.push();
+      p.noStroke();
+      const ctx = p.drawingContext;
+      if (ctx && typeof ctx.createLinearGradient === 'function') {
+        const grad = ctx.createLinearGradient(x0, 0, x0 + ll.barW, 0);
+        grad.addColorStop(0, String(g.c1));
+        grad.addColorStop(1, String(g.c2));
+        ctx.fillStyle = grad;
+        ctx.fillRect(x0, y0, ll.barW, ll.barH);
+      } else {
+        p.fill(String(g.c1));
+        p.rect(x0, y0, ll.barW, ll.barH);
+      }
+
+      p.fill(textColor);
+      p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+      p.textSize(ll.textSize);
+      p.textStyle(p.NORMAL);
+      const labelY = y0 + ll.barH + ll.gap + ll.textSize / 2;
+      p.textAlign(p.LEFT, p.CENTER);
+      p.text(minLabel, x0, labelY);
+      p.textAlign(p.RIGHT, p.CENTER);
+      p.text(maxLabel, x0 + ll.barW, labelY);
+      p.pop();
+      return;
+    }
+
+    const legendSpec = normalizeLegendSpec(opts && opts.legend);
+    const entries = getLegendEntriesFromOptions(p, opts);
+    const ll = computeSideLegendItemsLayout(p, opts, entries, legendSpec);
+    if (!ll || !ll.enabled) return;
+
+    const textColor = (opts && opts.legendTextColor) ? opts.legendTextColor : TEXT_COLOR;
+
+    p.push();
+    p.noStroke();
+    p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+    p.textSize(ll.textSize);
+    p.textStyle(p.NORMAL);
+    p.textAlign(p.LEFT, p.CENTER);
+
+    let y = y0;
+    entries.forEach(entry => {
+      p.fill(entry.color);
+      p.rect(x0, y + (ll.itemH - ll.boxSize) / 2, ll.boxSize, ll.boxSize);
+      p.fill(textColor);
+      p.text(String(entry.label), x0 + ll.boxSize + ll.gap, y + ll.itemH / 2);
+      y += ll.itemH + ll.rowGap;
+    });
+
+    p.pop();
+  }
+
+  function drawLegend(p, opts, w, metaLayout) {
+    if (!metaLayout || !metaLayout.legend || !metaLayout.legend.enabled) return;
+    const entries = metaLayout.legend.entries || [];
+    const ll = metaLayout.legend.layout;
+    if (!ll || !ll.rows || ll.rows.length === 0) return;
+
+    const align = (opts && opts.textAlign) ? opts.textAlign : p.LEFT;
+    const textColor = (opts && opts.legendTextColor) ? opts.legendTextColor : TEXT_COLOR;
+
+    p.push();
+    p.noStroke();
+    p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+    p.textSize(ll.textSize);
+    p.textStyle(p.NORMAL);
+    p.fill(textColor);
+    p.textAlign(p.LEFT, p.CENTER);
+
+    const startY = metaLayout.legend.topY;
+    let y = startY;
+
+    ll.rows.forEach(rowEntries => {
+      // Measure row width so we can honor LEFT/CENTER/RIGHT alignment.
+      let rowW = 0;
+      p.textSize(ll.textSize);
+      rowEntries.forEach((entry) => {
+        const labelW = p.textWidth(String(entry.label));
+        rowW += ll.boxSize + ll.gap + labelW + ll.itemGap;
+      });
+      if (rowW > 0) rowW -= ll.itemGap; // last item doesn't need trailing gap
+
+      let x = 0;
+      if (align === p.CENTER) x = (w - rowW) / 2;
+      else if (align === p.RIGHT) x = (w - rowW);
+      x = Math.max(0, x);
+
+      rowEntries.forEach((entry, i) => {
+        const label = String(entry.label);
+        const labelW = p.textWidth(label);
+
+        p.noStroke();
+        p.fill(entry.color);
+        p.rect(x, y + (ll.itemH - ll.boxSize) / 2, ll.boxSize, ll.boxSize);
+
+        p.noStroke();
+        p.fill(textColor);
+        p.text(label, x + ll.boxSize + ll.gap, y + ll.itemH / 2);
+
+        x += ll.boxSize + ll.gap + labelW + ll.itemGap;
+      });
+
+      y += ll.itemH + ll.rowGap;
+    });
+
+    p.pop();
+  }
+
+  function drawLegendGradient(p, opts, w, metaLayout) {
+    if (!metaLayout || !metaLayout.legend || !metaLayout.legend.enabled) return;
+    if (metaLayout.legend.mode !== 'gradient') return;
+    const ll = metaLayout.legend.layout;
+    const g = metaLayout.legend.gradient;
+    if (!ll || !g) return;
+
+    const align = (opts && opts.textAlign) ? opts.textAlign : p.LEFT;
+    const textColor = (opts && opts.legendTextColor) ? opts.legendTextColor : TEXT_COLOR;
+    const minLabel = (g.minLabel !== undefined) ? String(g.minLabel) : formatLegendNumber(g.min);
+    const maxLabel = (g.maxLabel !== undefined) ? String(g.maxLabel) : formatLegendNumber(g.max);
+    const c1 = g.c1;
+    const c2 = g.c2;
+
+    const startY = metaLayout.legend.topY;
+
+    let x = 0;
+    if (align === p.CENTER) x = (w - ll.barW) / 2;
+    else if (align === p.RIGHT) x = (w - ll.barW);
+    x = Math.max(0, x);
+
+    p.push();
+    p.noStroke();
+
+    // Gradient bar (Canvas2D)
+    const ctx = p.drawingContext;
+    if (ctx && typeof ctx.createLinearGradient === 'function') {
+      const grad = ctx.createLinearGradient(x, 0, x + ll.barW, 0);
+      grad.addColorStop(0, String(c1));
+      grad.addColorStop(1, String(c2));
+      ctx.fillStyle = grad;
+      ctx.fillRect(x, startY, ll.barW, ll.barH);
+    } else {
+      // Fallback: solid fill if gradient unavailable
+      p.fill(String(c1));
+      p.rect(x, startY, ll.barW, ll.barH);
+    }
+
+    // Min/Max labels
+    p.fill(textColor);
+    p.textFont((opts && opts.font) ? opts.font : DEFAULT_FONT);
+    p.textSize(ll.textSize);
+    p.textStyle(p.NORMAL);
+    const labelY = startY + ll.barH + ll.gap + ll.textSize / 2;
+    p.textAlign(p.LEFT, p.CENTER);
+    p.text(minLabel, x, labelY);
+    p.textAlign(p.RIGHT, p.CENTER);
+    p.text(maxLabel, x + ll.barW, labelY);
+
+    p.pop();
+  }
+
   function drawMeta(p, opts, w, h) {
       p.push();
       p.noStroke();
       p.textFont(opts.font || DEFAULT_FONT);
 
-      const scale = (opts && typeof opts._responsiveScale === 'number')
-        ? opts._responsiveScale
-        : getResponsiveScale(p, opts);
-      let titleSize = (opts && opts.titleSize) ? opts.titleSize : Math.round(TITLE_SIZE * scale);
-      let subtitleSize = (opts && opts.subtitleSize) ? opts.subtitleSize : Math.round(SUBTITLE_SIZE * scale);
+      const metaLayout = computeMetaLayout(p, opts, w);
+      const scale = metaLayout.scale;
+      let titleSize = metaLayout.titleSize;
+      let subtitleSize = metaLayout.subtitleSize;
       const axisLabelSize = (opts && opts.axisLabelSize) ? opts.axisLabelSize : Math.round(AXIS_LABEL_SIZE * scale);
       const sourceAuthorSize = (opts && opts.sourceAuthorSize) ? opts.sourceAuthorSize : Math.round(SOURCE_AUTHOR_SIZE * scale);
 
-      const titleOffsetY = -Math.round(30 * scale);
-      const subtitleOffsetY = -Math.round(12 * scale);
-      const yLabelOffsetX = -Math.round(30 * scale);
-      const xLabelOffsetY = Math.round(40 * scale);
+      const titleTopY = (metaLayout.title && metaLayout.title.topY !== null) ? metaLayout.title.topY : null;
+      const subtitleTopY = (metaLayout.subtitle && metaLayout.subtitle.topY !== null) ? metaLayout.subtitle.topY : null;
+      const axisLayout = computeAxisLabelLayout(p, opts, w, h);
+      const yLabelOffsetX = (axisLayout && axisLayout.y && typeof axisLayout.y.offsetX === 'number')
+        ? axisLayout.y.offsetX
+        : -Math.round(30 * scale);
+      const xLabelOffsetY = (axisLayout && axisLayout.x && typeof axisLayout.x.offsetY === 'number')
+        ? axisLayout.x.offsetY
+        : Math.round(40 * scale);
 
       p.drawingContext.font = 'bold ' + titleSize + 'px Roboto, sans-serif';
       
@@ -782,73 +1545,77 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       if (align === p.CENTER) xPos = w/2;
       if (align === p.RIGHT) xPos = w;
 
-      // Auto-fit title/subtitle font sizes to available width (prevents clipping on mobile).
-      // Can be disabled via { titleAutoFit: false } / { subtitleAutoFit: false }.
-      const metaPad = Math.round(10 * scale);
-      const maxMetaW = Math.max(10, w - metaPad * 2);
-      if (opts.title && opts.titleAutoFit !== false && !(opts && opts.titleSize)) {
-        p.textSize(titleSize);
-        p.textStyle(p.BOLD);
-        let guard = 0;
-        while (p.textWidth(String(opts.title)) > maxMetaW && titleSize > 11 && guard++ < 20) {
-          titleSize -= 1;
-          p.textSize(titleSize);
-        }
-      }
-      if (opts.subtitle && opts.subtitleAutoFit !== false && !(opts && opts.subtitleSize)) {
-        p.textSize(subtitleSize);
-        p.textStyle(opts.subtitleBold ? p.BOLD : p.NORMAL);
-        let guard = 0;
-        while (p.textWidth(String(opts.subtitle)) > maxMetaW && subtitleSize > 10 && guard++ < 20) {
-          subtitleSize -= 1;
-          p.textSize(subtitleSize);
-        }
-      }
-      
-      if (opts.title) {
-          p.fill(TEXT_COLOR); 
+      // Title (wrapped by default; pushes plot down via margin calculation)
+      if (opts.title && metaLayout.title && Array.isArray(metaLayout.title.lines) && titleTopY !== null) {
+          p.fill(TEXT_COLOR);
           p.textSize(titleSize);
           p.textStyle(p.BOLD);
           p.drawingContext.fontWeight = 'bold';
-          p.textAlign(align, p.BOTTOM); 
-          p.text(opts.title, xPos, titleOffsetY);
+          p.textAlign(align, p.TOP);
+          p.textLeading(titleSize + (metaLayout.title.lineGap || 0));
+          p.text(metaLayout.title.lines.join('\n'), xPos, titleTopY);
       }
-      if (opts.subtitle) {
+
+      // Subtitle (wrapped by default; sits below title)
+      if (opts.subtitle && metaLayout.subtitle && Array.isArray(metaLayout.subtitle.lines) && subtitleTopY !== null) {
           p.drawingContext.font = (opts.subtitleBold ? 'bold' : 'normal') + ' ' + subtitleSize + 'px Roboto, sans-serif';
-          p.fill(SUBTEXT_COLOR); p.textSize(subtitleSize);
+          p.fill(SUBTEXT_COLOR);
+          p.textSize(subtitleSize);
           p.textStyle(opts.subtitleBold ? p.BOLD : p.NORMAL);
-          p.textAlign(align, p.BOTTOM); p.text(opts.subtitle, xPos, subtitleOffsetY);
+          p.textAlign(align, p.TOP);
+          p.textLeading(subtitleSize + (metaLayout.subtitle.lineGap || 0));
+          p.text(metaLayout.subtitle.lines.join('\n'), xPos, subtitleTopY);
       }
-      if (opts.source || opts.author) {
+
+      // Legend (global option; off by default)
+      if (metaLayout && metaLayout.legend && metaLayout.legend.enabled) {
+        if (metaLayout.legend.position !== 'right') {
+          if (metaLayout.legend.mode === 'gradient') drawLegendGradient(p, opts, w, metaLayout);
+          else drawLegend(p, opts, w, metaLayout);
+        }
+      }
+      if (axisLayout && axisLayout.footer && axisLayout.footer.enabled && axisLayout.footer.text) {
           p.fill(SUBTEXT_COLOR); p.textSize(sourceAuthorSize);
           p.textAlign(p.LEFT, p.TOP);
-          let footerText = "";
-          if (opts.source) footerText += `Source: ${opts.source}`;
-          if (opts.author) {
-              if (opts.source) footerText += "  |  "; // Add spacing between source and author
-              footerText += `Chart: ${opts.author}`;
+          const footerBase = (opts.xLabel || opts.yLabel) ? Math.round(50 * scale) : Math.round(30 * scale);
+          let footerY = h + footerBase;
+          if (axisLayout.x && Array.isArray(axisLayout.x.lines) && axisLayout.x.lines.length) {
+            const xTop = h + axisLayout.x.topOffsetFromPlotBottom;
+            const xBottom = xTop + axisLayout.x.height;
+            footerY = Math.max(footerY, xBottom + Math.round(10 * scale));
           }
-          const footerY = (opts.xLabel || opts.yLabel) ? (h + Math.round(50 * scale)) : (h + Math.round(30 * scale));
-          p.text(footerText, 0, footerY);
+
+          p.textLeading(sourceAuthorSize + Math.round(3 * scale));
+          const footerLines = (axisLayout.footer.wrap === false)
+            ? [String(axisLayout.footer.text)]
+            : wrapTextLines(p, axisLayout.footer.text, Math.max(10, Math.round(w - Math.round(10 * scale) * 2)));
+          p.text(footerLines.join('\n'), 0, footerY);
       }
       
         // X-axis label
         if (opts.xLabel) {
           p.drawingContext.font = 'normal ' + axisLabelSize + 'px Roboto, sans-serif';
           p.fill(TEXT_COLOR); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
-          p.textAlign(p.CENTER, p.BOTTOM);
-          p.text(opts.xLabel, w/2, h + xLabelOffsetY);
+          const xLines = (axisLayout && axisLayout.x && Array.isArray(axisLayout.x.lines)) ? axisLayout.x.lines : [String(opts.xLabel)];
+          const xTop = (axisLayout && axisLayout.x)
+            ? (h + axisLayout.x.topOffsetFromPlotBottom)
+            : (h + (xLabelOffsetY - axisLabelSize));
+          p.textAlign(p.CENTER, p.TOP);
+          p.textLeading(axisLabelSize + ((axisLayout && axisLayout.x && axisLayout.x.lineGap) ? axisLayout.x.lineGap : 0));
+          p.text(xLines.join('\n'), w/2, xTop);
         }
       
         // Y-axis label
         if (opts.yLabel) {
           p.drawingContext.font = 'normal ' + axisLabelSize + 'px Roboto, sans-serif';
           p.fill(TEXT_COLOR); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
+          const yLines = (axisLayout && axisLayout.y && Array.isArray(axisLayout.y.lines)) ? axisLayout.y.lines : [String(opts.yLabel)];
           p.push();
           p.translate(yLabelOffsetX, h/2);
           p.rotate(-p.HALF_PI);
-          p.textAlign(p.CENTER, p.BOTTOM);
-          p.text(opts.yLabel, 0, 0);
+          p.textAlign(p.CENTER, p.CENTER);
+          p.textLeading(axisLabelSize + ((axisLayout && axisLayout.y && axisLayout.y.lineGap) ? axisLayout.y.lineGap : 0));
+          p.text(yLines.join('\n'), 0, 0);
           p.pop();
         }
       
@@ -1029,16 +1796,41 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     if (options.title === undefined) options.title = df.columns.join(' vs. ');
     const leftMargin = options.yLabel ? scalePx(p, options, 50, 0, 120) : 0;
     const baseMargin = { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: DEFAULT_MARGIN.bottom, left: leftMargin };
-    const margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
-    const margin = withMobileRightPadding(p, options, margin0);
+
+    // Legend entries:
+    // - If multiple value columns, legend represents series (colors keyed by series index j).
+    // - If a single value column, legend represents the displayed bars/categories (colors keyed by bar index i).
+    const legendEntries = (Array.isArray(valCols) && valCols.length > 1)
+      ? valCols.slice()
+      : labels.map(v => String(v));
+    const legendColors = legendEntries.map((_, i) => getColor(p, i, options.palette));
+
+    const _responsiveScale = getResponsiveScale(p, options);
+    const metaOpts = Object.assign({}, options, { _responsiveScale, _legendEntries: legendEntries, _legendColors: legendColors });
+
+    let margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
+    margin0 = withMobileRightPadding(p, options, margin0);
+
+    // Reserve space for right-side vertical legends.
+    margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
     const canvasW = p.width;
     const canvasH = p.height;
     const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
     const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+
+    // Expand top margin if legend/title/subtitle need more space.
+    margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+    // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+    margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
+
+    // Axis margins can change plot width; re-run top layout once.
+    margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+    const margin = margin0;
     const w = baseW - margin.left - margin.right;
     const h = baseH - margin.top - margin.bottom;
 
-    const _responsiveScale = getResponsiveScale(p, options);
     const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
     const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
     const axisLabelSize = scalePx(p, options, AXIS_LABEL_SIZE, 9, 16);
@@ -1047,7 +1839,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
     p.push();
     p.translate(margin.left, margin.top);
-    drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
+    drawMeta(p, metaOpts, w, h);
+
+    // Right-side vertical legend
+    drawSideLegend(p, metaOpts, w, h);
 
     let maxVal = 0;
     rows.forEach(row => {
@@ -1397,19 +2192,40 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     options.textAlign = options.textAlign || p.LEFT;
 
     const baseMargin = { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: 40, left: DEFAULT_MARGIN.right };
-    const margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
-    const margin = withMobileRightPadding(p, options, margin0);
+
+    // Legend entries for pie slices.
+    const legendEntries = labels.slice();
+    const legendColors = legendEntries.map((_, i) => getColor(p, i, options.palette));
+
+    const _responsiveScale = getResponsiveScale(p, options);
+    const metaOpts = Object.assign({}, options, { _responsiveScale, _legendEntries: legendEntries, _legendColors: legendColors });
+
+    let margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
+    margin0 = withMobileRightPadding(p, options, margin0);
+
+    // Reserve space for right-side vertical legends.
+    margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
     const canvasW = p.width;
     const canvasH = p.height;
     const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
     const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+
+    // Expand top margin if legend/title/subtitle need more space.
+    margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+    // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+    margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
+
+    // Axis margins can change plot width; re-run top layout once.
+    margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+    const margin = margin0;
     const w = baseW - margin.left - margin.right;
     const h = baseH - margin.top - margin.bottom;
     const cx = w/2; 
     const cy = h/2;
     const r = options.radius || Math.min(w, h) / 2.5;
 
-    const _responsiveScale = getResponsiveScale(p, options);
     const pieLabelSize = scalePx(p, options, PIE_LABEL_SIZE, 9, 14);
     const pieOutsideOffset = isMobileLayout(p, options)
       ? scalePx(p, options, 18, 12, 26)
@@ -1427,8 +2243,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       options.title = `${lblCol} vs. ${valCol}`;
     }
     // Draw Metadata (Title, Subtitle, etc.), left-aligned
-    let pieMetaOpts = Object.assign({}, options, { textAlign: p.LEFT, _responsiveScale });
+    let pieMetaOpts = Object.assign({}, metaOpts, { textAlign: p.LEFT });
     drawMeta(p, pieMetaOpts, w, h);
+
+    // Right-side vertical legend
+    drawSideLegend(p, pieMetaOpts, w, h);
     
     // Shift the pie center down if outside labels are used to clear title space.
     p.translate(cx, cy + pieVerticalShift);
@@ -1646,16 +2465,37 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       // Validate data for NaN values
       const validation = validateData(df, yCols, options, 'series');
       
-      const margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
-      const margin = withMobileRightPadding(p, options, margin0);
+
+      // Legend entries for multiple Y series.
+      const legendEntries = yCols.slice();
+      const legendColors = legendEntries.map((_, i) => getColor(p, i, options.palette));
+
+      const _responsiveScale = getResponsiveScale(p, options);
+      const metaOpts = Object.assign({}, options, { _responsiveScale, _legendEntries: legendEntries, _legendColors: legendColors });
+
+      let margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
+      margin0 = withMobileRightPadding(p, options, margin0);
+
+      // Reserve space for right-side vertical legends.
+      margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
       const canvasW = p.width;
       const canvasH = p.height;
       const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
       const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+
+      // Expand top margin if legend/title/subtitle need more space.
+      margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+      // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+      margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
+
+      // Axis margins can change plot width; re-run top layout once.
+      margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+      const margin = margin0;
       const w = baseW - margin.left - margin.right;
       const h = baseH - margin.top - margin.bottom;
 
-      const _responsiveScale = getResponsiveScale(p, options);
       const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
       const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
       const dataLabelSize = scalePx(p, options, DATA_LABEL_SIZE, 9, 14);
@@ -1689,7 +2529,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       
       p.push();
       p.translate(margin.left, margin.top);
-      drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
+      drawMeta(p, metaOpts, w, h);
+
+      // Right-side vertical legend
+      drawSideLegend(p, metaOpts, w, h);
       
       // Axes
       p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
@@ -1857,22 +2700,15 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       // Validate data for NaN values
       const validation = validateData(df, [xCol, yCol], options, 'scatter');
       
-      const margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
-      const margin = withMobileRightPadding(p, options, margin0);
+
+      const _responsiveScale = getResponsiveScale(p, options);
+
+      let margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
+      margin0 = withMobileRightPadding(p, options, margin0);
       const canvasW = p.width;
       const canvasH = p.height;
       const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
       const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
-      const w = baseW - margin.left - margin.right;
-      const h = baseH - margin.top - margin.bottom;
-
-      const _responsiveScale = getResponsiveScale(p, options);
-      const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
-      const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
-      const dataLabelSize = scalePx(p, options, DATA_LABEL_SIZE, 9, 14);
-      const pointStrokeW = scalePx(p, options, POINT_STROKE_WEIGHT, 1, 4);
-      const pointHoverStrokeW = scalePx(p, options, POINT_HOVER_STROKE_WEIGHT, 1, 5);
-      const tickTextOffset = scalePx(p, options, 8, 6, 12);
 
       // --- Data Extraction ---
       const rows = df.rows;
@@ -1940,9 +2776,63 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const lblPos = options.labelPos || 'auto';
       const palette = options.palette || p.chart.palette;
 
+      // Legend:
+      // - If categorical color mapping: item legend by category.
+      // - If numeric color mapping: gradient legend.
+      let legendEntries = [];
+      let legendColors = [];
+      let legendGradient = null;
+      if (colorCol && rows[0] && rows[0][colorCol] !== undefined) {
+        if (isColorNumeric) {
+          legendGradient = {
+            min: minC,
+            max: maxC,
+            c1: getColor(p, 0, palette),
+            c2: getColor(p, 1, palette),
+            label: String(colorCol)
+          };
+        } else if (Array.isArray(colorDomain) && colorDomain.length > 0) {
+          legendEntries = colorDomain.map(v => String(v));
+          legendColors = legendEntries.map((_, i) => getColor(p, i, palette));
+        }
+      }
+
+      const metaOpts = Object.assign({}, options, {
+        _responsiveScale,
+        _legendEntries: legendEntries,
+        _legendColors: legendColors,
+        _legendGradient: legendGradient
+      });
+
+      // Reserve space for right-side vertical legends.
+      margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
+
+      // Expand top margin if legend/title/subtitle need more space.
+      margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+      // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+      margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
+
+      // Axis margins can change plot width; re-run top layout once.
+      margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+      const margin = margin0;
+      const w = baseW - margin.left - margin.right;
+      const h = baseH - margin.top - margin.bottom;
+
+      const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
+      const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
+      const dataLabelSize = scalePx(p, options, DATA_LABEL_SIZE, 9, 14);
+      const pointStrokeW = scalePx(p, options, POINT_STROKE_WEIGHT, 1, 4);
+      const pointHoverStrokeW = scalePx(p, options, POINT_HOVER_STROKE_WEIGHT, 1, 5);
+      const tickTextOffset = scalePx(p, options, 8, 6, 12);
+
       p.push();
       p.translate(margin.left, margin.top);
-      drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
+      drawMeta(p, metaOpts, w, h);
+
+      // Right-side vertical legend
+      drawSideLegend(p, metaOpts, w, h);
       
       // --- Axes ---
       p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
@@ -2190,16 +3080,36 @@ p5.prototype.hist = function(data, options = {}) {
     
     // --- Layout and Scaling ---
     const maxCount = Math.max(...counts);
-    const margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
-    const margin = withMobileRightPadding(p, options, margin0);
+
+    // Legend entry for histogram (single series).
+    const _responsiveScale = getResponsiveScale(p, options);
+    const legendEntries = [String(col)];
+    const legendColors = [getColor(p, 0, options.palette)];
+    const metaOpts = Object.assign({}, options, { _responsiveScale, _legendEntries: legendEntries, _legendColors: legendColors });
+
+    let margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
+    margin0 = withMobileRightPadding(p, options, margin0);
+
+    // Reserve space for right-side vertical legends.
+    margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
     const canvasW = p.width;
     const canvasH = p.height;
     const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
     const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+
+    // Expand top margin if legend/title/subtitle need more space.
+    margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+    // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+    margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
+
+    // Axis margins can change plot width; re-run top layout once.
+    margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
+
+    const margin = margin0;
     const w = baseW - margin.left - margin.right;
     const h = baseH - margin.top - margin.bottom;
 
-    const _responsiveScale = getResponsiveScale(p, options);
     const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
     const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
     const histLabelSize = scalePx(p, options, HIST_LABEL_SIZE, 8, 14);
@@ -2235,7 +3145,10 @@ p5.prototype.hist = function(data, options = {}) {
     options.title = options.title || `Histogram of ${col}`;
     
     p.textFont(options.font || DEFAULT_FONT);
-    drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
+    drawMeta(p, metaOpts, w, h);
+
+    // Right-side vertical legend
+    drawSideLegend(p, metaOpts, w, h);
 
     // --- Axes and Ticks ---
     p.textFont(options.font || DEFAULT_FONT);

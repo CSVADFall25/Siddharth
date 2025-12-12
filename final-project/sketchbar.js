@@ -36,6 +36,13 @@ function draw() {
     subtitle: "Subtitle",
     author: "Author Name",
     source: "Data Source",
+
+    // ---------------------------
+    // LEGEND
+    // ---------------------------
+    // Off by default in the library. Turn on with true.
+    // For vertical: legend: 'vertical'
+    legend: "vertical",
     
     // ---------------------------
     // 3. AXIS & VALUE LABELS
