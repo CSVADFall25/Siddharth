@@ -162,6 +162,32 @@ function getAutoLabelColor(bgColor) {
   
   p5.prototype.chart.inputs = {}; // Cache for DOM elements
 
+  // If true (default), charts will attempt to avoid CSS-squished canvases by resizing
+  // the p5 canvas to match its displayed (CSS) size when needed.
+  // Opt out globally by setting: p5.prototype.chart.autoFitCanvas = false;
+  // Or per-chart via options.autoFitCanvas = false.
+  if (p5.prototype.chart.autoFitCanvas === undefined) {
+    p5.prototype.chart.autoFitCanvas = true;
+  }
+
+  // Inject a safe default CSS rule so p5 canvases don’t overflow on small/mobile screens.
+  // This makes fixed-size sketches behave responsively without requiring sketch changes.
+  (function ensureResponsiveCanvasCSS() {
+    try {
+      const styleId = 'p5chart-responsive-canvas';
+      if (typeof document === 'undefined') return;
+      if (document.getElementById(styleId)) return;
+      const style = document.createElement('style');
+      style.id = styleId;
+      style.textContent = `
+canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
+`;
+      document.head.appendChild(style);
+    } catch (e) {
+      // ignore
+    }
+  })();
+
   // ==========================================
   // 1. DATAFRAME & LOADING 
   // ==========================================
@@ -536,33 +562,258 @@ function getAutoLabelColor(bgColor) {
     };
   }
 
+  // ==========================================
+  // RESPONSIVE LAYOUT HELPERS
+  // ==========================================
+
+  function clampNumber(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function getCanvasElement(p) {
+    return p.canvas || (p._renderer && p._renderer.elt) || null;
+  }
+
+  function getCanvasDisplayMetrics(p) {
+    const elt = getCanvasElement(p);
+    if (!elt || !elt.getBoundingClientRect) {
+      return { left: 0, top: 0, width: p.width || 0, height: p.height || 0, scaleX: 1, scaleY: 1, scale: 1 };
+    }
+    const rect = elt.getBoundingClientRect();
+    const scaleX = rect.width ? (p.width / rect.width) : 1;
+    const scaleY = rect.height ? (p.height / rect.height) : 1;
+    // scale: CSS pixels per canvas pixel (inverse of scaleX/scaleY)
+    const cssPerCanvasX = rect.width && p.width ? (rect.width / p.width) : 1;
+    const cssPerCanvasY = rect.height && p.height ? (rect.height / p.height) : 1;
+    const cssPerCanvas = Math.min(cssPerCanvasX, cssPerCanvasY);
+
+    return {
+      left: rect.left,
+      top: rect.top,
+      width: rect.width,
+      height: rect.height,
+      scaleX,
+      scaleY,
+      scale: cssPerCanvas
+    };
+  }
+
+  function isMobileLayout(p, options = {}) {
+    if (options && options.responsive === false) return false;
+    if (options && options.mobilePadding === false) return false;
+    if (options && options.mobilePadding === true) return true;
+    const metrics = getCanvasDisplayMetrics(p);
+    const displayW = metrics.width || p.width || 0;
+    // Treat < 640px as mobile (Tailwind's sm breakpoint).
+    return displayW > 0 && displayW < 640;
+  }
+
+  function getMobileRightPadding(p, options = {}) {
+    if (!isMobileLayout(p, options)) return 0;
+    return scalePx(p, options, 20, 8, 24);
+  }
+
+  function withMobileRightPadding(p, options, margin) {
+    const m0 = margin || DEFAULT_MARGIN;
+    const m = {
+      top: m0.top || 0,
+      right: m0.right || 0,
+      bottom: m0.bottom || 0,
+      left: m0.left || 0
+    };
+    const pad = getMobileRightPadding(p, options);
+    if (pad > 0) m.right += pad;
+    return m;
+  }
+
+  function ensureCanvasMatchesDisplay(p, options = {}) {
+    const globalEnabled = p5.prototype.chart.autoFitCanvas !== false;
+    const localEnabled = options.autoFitCanvas !== false;
+    if (!globalEnabled || !localEnabled) return;
+    if (!p || typeof p.resizeCanvas !== 'function') return;
+
+    const elt = getCanvasElement(p);
+    if (!elt || !elt.getBoundingClientRect) return;
+
+    // Record the intended/original canvas size so we can restore it after shrinking.
+    if (!p.chart._designCanvasSize) {
+      p.chart._designCanvasSize = { w: p.width || 0, h: p.height || 0 };
+    }
+    const designW = Math.max(1, Math.round(p.chart._designCanvasSize.w || p.width || 1));
+    const designH = Math.max(1, Math.round(p.chart._designCanvasSize.h || p.height || 1));
+
+    // Determine available size from parent container (fallback to viewport).
+    // Note: many pages don't give the canvas parent an explicit height; in that case
+    // using parent height can incorrectly collapse the canvas. We only trust parent
+    // height if it's reasonably sized.
+    let availW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : designW;
+    let availH = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : designH;
+    try {
+      const parent = elt.parentElement;
+      if (parent && parent.getBoundingClientRect) {
+        const pr = parent.getBoundingClientRect();
+        if (pr.width && pr.width > 0) availW = pr.width;
+        // Only use parent height if it's explicitly constraining the layout.
+        if (pr.height && pr.height >= 80) availH = pr.height;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    // Fit to available space, but never grow beyond the design size.
+    // This avoids “squish” (CSS scaling) while still allowing the canvas to return to normal.
+    const targetW = Math.max(1, Math.round(Math.min(designW, availW)));
+    const targetH = Math.max(1, Math.round(Math.min(designH, availH)));
+
+    if (Math.abs((p.width || 0) - targetW) > 1 || Math.abs((p.height || 0) - targetH) > 1) {
+      // Debounce per p5 instance to avoid repeated resize spam.
+      if (!p.chart._lastAutoFit) p.chart._lastAutoFit = { w: 0, h: 0, frame: -1 };
+      const last = p.chart._lastAutoFit;
+      if (last.w === targetW && last.h === targetH && last.frame === p.frameCount) return;
+      last.w = targetW;
+      last.h = targetH;
+      last.frame = p.frameCount;
+      try {
+        p.resizeCanvas(targetW, targetH);
+      } catch (e) {
+        // ignore
+      }
+    }
+  }
+
+  // Mobile-first scaling: returns 1 on typical desktop canvases and scales down on small canvases.
+  // Can be disabled per-chart via { responsive: false }.
+  function getResponsiveScale(p, options = {}) {
+    if (options && options.responsive === false) return 1;
+    if (options && typeof options.responsiveScale === 'number') {
+      return clampNumber(options.responsiveScale, 0.4, 2);
+    }
+
+    // Prefer *displayed* canvas size (CSS pixels) so responsiveness works even when the
+    // sketch uses a fixed createCanvas(...) but the canvas is scaled via CSS.
+    const metrics = getCanvasDisplayMetrics(p);
+    const displayW = metrics.width || ((options && options.width) ? options.width : p.width);
+    const displayH = metrics.height || ((options && options.height) ? options.height : p.height);
+    const minDim = Math.max(1, Math.min(displayW || 1, displayH || 1));
+
+    // Keep default typography “normal” for common chart sizes (e.g. 600x400 where minDim=400),
+    // and only scale down when the displayed canvas is actually smaller than that.
+    const BASE_MIN_DIM = 400;
+    if (minDim >= BASE_MIN_DIM) return 1;
+    const displayScale = minDim / BASE_MIN_DIM;
+    return clampNumber(displayScale, 0.6, 1);
+  }
+
+  function scalePx(p, options, px, min = 1, max = Infinity) {
+    const s = getResponsiveScale(p, options);
+    const v = Math.round(px * s);
+    return clampNumber(v, min, max);
+  }
+
+  function getResponsiveMargin(p, options, baseMargin) {
+    const s = getResponsiveScale(p, options);
+    const baseW = (options && options.width) ? options.width : p.width;
+    const baseH = (options && options.height) ? options.height : p.height;
+
+    const m0 = baseMargin || DEFAULT_MARGIN;
+    const m = {
+      top: Math.round((m0.top || 0) * s),
+      right: Math.round((m0.right || 0) * s),
+      bottom: Math.round((m0.bottom || 0) * s),
+      left: Math.round((m0.left || 0) * s)
+    };
+
+    // Keep margins usable on very small screens.
+    const minMargin = 10;
+    m.top = Math.max(minMargin, m.top);
+    m.right = Math.max(minMargin, m.right);
+    m.bottom = Math.max(minMargin, m.bottom);
+    m.left = Math.max(minMargin, m.left);
+
+    // Ensure space for titles and footer/axis labels.
+    const needsTop = !!(options && (options.title || options.subtitle));
+    const topMin = needsTop ? Math.round(50 * s) : Math.round(18 * s);
+    m.top = Math.max(m.top, topMin);
+
+    const needsBottom = !!(options && (options.xLabel || options.yLabel || options.source || options.author));
+    const bottomMin = needsBottom ? Math.round(60 * s) : Math.round(18 * s);
+    m.bottom = Math.max(m.bottom, bottomMin);
+
+    // Prevent margins from swallowing the plot area.
+    const maxLR = Math.max(40, Math.floor((baseW || 0) * 0.32));
+    const maxTB = Math.max(40, Math.floor((baseH || 0) * 0.36));
+    m.left = Math.min(m.left, maxLR);
+    m.right = Math.min(m.right, maxLR);
+    m.top = Math.min(m.top, maxTB);
+    m.bottom = Math.min(m.bottom, maxTB);
+
+    return m;
+  }
+
   function drawMeta(p, opts, w, h) {
       p.push();
       p.noStroke();
       p.textFont(opts.font || DEFAULT_FONT);
-      p.drawingContext.font = 'bold ' + TITLE_SIZE + 'px Roboto, sans-serif';
+
+      const scale = (opts && typeof opts._responsiveScale === 'number')
+        ? opts._responsiveScale
+        : getResponsiveScale(p, opts);
+      let titleSize = (opts && opts.titleSize) ? opts.titleSize : Math.round(TITLE_SIZE * scale);
+      let subtitleSize = (opts && opts.subtitleSize) ? opts.subtitleSize : Math.round(SUBTITLE_SIZE * scale);
+      const axisLabelSize = (opts && opts.axisLabelSize) ? opts.axisLabelSize : Math.round(AXIS_LABEL_SIZE * scale);
+      const sourceAuthorSize = (opts && opts.sourceAuthorSize) ? opts.sourceAuthorSize : Math.round(SOURCE_AUTHOR_SIZE * scale);
+
+      const titleOffsetY = -Math.round(30 * scale);
+      const subtitleOffsetY = -Math.round(12 * scale);
+      const yLabelOffsetX = -Math.round(30 * scale);
+      const xLabelOffsetY = Math.round(40 * scale);
+
+      p.drawingContext.font = 'bold ' + titleSize + 'px Roboto, sans-serif';
       
       const align = opts.textAlign || p.LEFT;
       let xPos = 0;
       if (align === p.CENTER) xPos = w/2;
       if (align === p.RIGHT) xPos = w;
+
+      // Auto-fit title/subtitle font sizes to available width (prevents clipping on mobile).
+      // Can be disabled via { titleAutoFit: false } / { subtitleAutoFit: false }.
+      const metaPad = Math.round(10 * scale);
+      const maxMetaW = Math.max(10, w - metaPad * 2);
+      if (opts.title && opts.titleAutoFit !== false && !(opts && opts.titleSize)) {
+        p.textSize(titleSize);
+        p.textStyle(p.BOLD);
+        let guard = 0;
+        while (p.textWidth(String(opts.title)) > maxMetaW && titleSize > 11 && guard++ < 20) {
+          titleSize -= 1;
+          p.textSize(titleSize);
+        }
+      }
+      if (opts.subtitle && opts.subtitleAutoFit !== false && !(opts && opts.subtitleSize)) {
+        p.textSize(subtitleSize);
+        p.textStyle(opts.subtitleBold ? p.BOLD : p.NORMAL);
+        let guard = 0;
+        while (p.textWidth(String(opts.subtitle)) > maxMetaW && subtitleSize > 10 && guard++ < 20) {
+          subtitleSize -= 1;
+          p.textSize(subtitleSize);
+        }
+      }
       
       if (opts.title) {
           p.fill(TEXT_COLOR); 
-          p.textSize(opts.titleSize || TITLE_SIZE); 
+          p.textSize(titleSize);
           p.textStyle(p.BOLD);
           p.drawingContext.fontWeight = 'bold';
           p.textAlign(align, p.BOTTOM); 
-          p.text(opts.title, xPos, -30);
+          p.text(opts.title, xPos, titleOffsetY);
       }
       if (opts.subtitle) {
-          p.drawingContext.font = (opts.subtitleBold ? 'bold' : 'normal') + ' ' + SUBTITLE_SIZE + 'px Roboto, sans-serif';
-          p.fill(SUBTEXT_COLOR); p.textSize(opts.subtitleSize || SUBTITLE_SIZE); 
+          p.drawingContext.font = (opts.subtitleBold ? 'bold' : 'normal') + ' ' + subtitleSize + 'px Roboto, sans-serif';
+          p.fill(SUBTEXT_COLOR); p.textSize(subtitleSize);
           p.textStyle(opts.subtitleBold ? p.BOLD : p.NORMAL);
-          p.textAlign(align, p.BOTTOM); p.text(opts.subtitle, xPos, -12);
+          p.textAlign(align, p.BOTTOM); p.text(opts.subtitle, xPos, subtitleOffsetY);
       }
       if (opts.source || opts.author) {
-          p.fill(SUBTEXT_COLOR); p.textSize(SOURCE_AUTHOR_SIZE);
+          p.fill(SUBTEXT_COLOR); p.textSize(sourceAuthorSize);
           p.textAlign(p.LEFT, p.TOP);
           let footerText = "";
           if (opts.source) footerText += `Source: ${opts.source}`;
@@ -570,24 +821,24 @@ function getAutoLabelColor(bgColor) {
               if (opts.source) footerText += "  |  "; // Add spacing between source and author
               footerText += `Chart: ${opts.author}`;
           }
-          const footerY = opts.xLabel || opts.yLabel ? h + 50 : h + 30; // Move up if no axis labels
+          const footerY = (opts.xLabel || opts.yLabel) ? (h + Math.round(50 * scale)) : (h + Math.round(30 * scale));
           p.text(footerText, 0, footerY);
       }
       
         // X-axis label
         if (opts.xLabel) {
-          p.drawingContext.font = 'normal ' + AXIS_LABEL_SIZE + 'px Roboto, sans-serif';
-          p.fill(TEXT_COLOR); p.textSize(AXIS_LABEL_SIZE); p.textStyle(p.NORMAL);
+          p.drawingContext.font = 'normal ' + axisLabelSize + 'px Roboto, sans-serif';
+          p.fill(TEXT_COLOR); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
           p.textAlign(p.CENTER, p.BOTTOM);
-          p.text(opts.xLabel, w/2, h + 40);
+          p.text(opts.xLabel, w/2, h + xLabelOffsetY);
         }
       
         // Y-axis label
         if (opts.yLabel) {
-          p.drawingContext.font = 'normal ' + AXIS_LABEL_SIZE + 'px Roboto, sans-serif';
-          p.fill(TEXT_COLOR); p.textSize(AXIS_LABEL_SIZE); p.textStyle(p.NORMAL);
+          p.drawingContext.font = 'normal ' + axisLabelSize + 'px Roboto, sans-serif';
+          p.fill(TEXT_COLOR); p.textSize(axisLabelSize); p.textStyle(p.NORMAL);
           p.push();
-          p.translate(-30, h/2);
+          p.translate(yLabelOffsetX, h/2);
           p.rotate(-p.HALF_PI);
           p.textAlign(p.CENTER, p.BOTTOM);
           p.text(opts.yLabel, 0, 0);
@@ -622,7 +873,15 @@ function getAutoLabelColor(bgColor) {
     p.noStroke();
     p.fill(0, 0, 0, 220); // Using TOOLTIP_BG_COLOR concept
     p.rectMode(p.CORNER);
-    p.textSize(TOOLTIP_TEXT_SIZE);
+
+    const canvasScale = clampNumber(Math.min(p.width, p.height) / 700, 0.6, 1);
+    const tipTextSize = Math.round(TOOLTIP_TEXT_SIZE * canvasScale);
+    const tipPad = Math.round(TOOLTIP_PADDING * canvasScale);
+    const tipLineH = Math.round(TOOLTIP_LINE_HEIGHT * canvasScale);
+    const tipOffset = Math.round(TOOLTIP_OFFSET * canvasScale);
+    const tipRadius = Math.round(TOOLTIP_BORDER_RADIUS * canvasScale);
+
+    p.textSize(tipTextSize);
     p.textFont(DEFAULT_FONT);
     
     let maxWidth = 0;
@@ -630,19 +889,19 @@ function getAutoLabelColor(bgColor) {
       let w = p.textWidth(l); 
       if (w > maxWidth) maxWidth = w; 
     });
-    let boxW = maxWidth + (TOOLTIP_PADDING * 2); 
-    let boxH = h.content.length * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING;
+    let boxW = maxWidth + (tipPad * 2);
+    let boxH = h.content.length * tipLineH + tipPad;
     
-    let tx = h.x + TOOLTIP_OFFSET; 
-    let ty = h.y + TOOLTIP_OFFSET;
-    if (tx + boxW > p.width) tx = h.x - boxW - TOOLTIP_OFFSET;
-    if (ty + boxH > p.height) ty = h.y - boxH - TOOLTIP_OFFSET;
+    let tx = h.x + tipOffset;
+    let ty = h.y + tipOffset;
+    if (tx + boxW > p.width) tx = h.x - boxW - tipOffset;
+    if (ty + boxH > p.height) ty = h.y - boxH - tipOffset;
     
     p.translate(tx, ty); 
-    p.rect(0, 0, boxW, boxH, TOOLTIP_BORDER_RADIUS);
+    p.rect(0, 0, boxW, boxH, tipRadius);
     p.fill(255); // TOOLTIP_TEXT_COLOR
     p.textAlign(p.LEFT, p.TOP);
-    h.content.forEach((l, i) => p.text(l, TOOLTIP_PADDING, 8 + i * TOOLTIP_LINE_HEIGHT));
+    h.content.forEach((l, i) => p.text(l, tipPad, Math.round(8 * canvasScale) + i * tipLineH));
     p.pop();
 
     // reset so next frame recomputes
@@ -685,6 +944,7 @@ function getAutoLabelColor(bgColor) {
    */
   p5.prototype.bar = function(data, options = {}) {
     const p = this;
+    ensureCanvasMatchesDisplay(p, options);
     let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
     
     const orient = options.orientation || 'horizontal';
@@ -703,29 +963,43 @@ function getAutoLabelColor(bgColor) {
     // Calculate label space dynamically for horizontal bars
     let labelSpace = options.labelSpace;
     if (!labelSpace && orient === 'horizontal') {
-      p.textSize(12);
+      const labelMeasureSize = scalePx(p, options, 12, 8, 16);
+      p.textSize(labelMeasureSize);
       p.textFont(options.font || DEFAULT_FONT);
       let maxLabelWidth = 0;
       labels.forEach(lbl => {
         let lblWidth = p.textWidth(String(lbl));
         if (lblWidth > maxLabelWidth) maxLabelWidth = lblWidth;
       });
-      labelSpace = maxLabelWidth + 20; // 20px padding
+      labelSpace = maxLabelWidth + scalePx(p, options, 20, 10, 40); // padding
     } else if (!labelSpace) {
-      labelSpace = 70; // Default for vertical
+      labelSpace = scalePx(p, options, 70, 40, 120); // Default for vertical
     }
     
     if (options.xLabel === undefined) options.xLabel = labelCol;
     if (options.yLabel === undefined) options.yLabel = Array.isArray(valCols) ? valCols.join(', ') : valCols;
     if (options.title === undefined) options.title = df.columns.join(' vs. ');
-    const leftMargin = options.yLabel ? 50 : 0;
-    const margin = options.margin || { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: DEFAULT_MARGIN.bottom, left: leftMargin };
-    const w = (options.width || p.width) - margin.left - margin.right;
-    const h = (options.height || p.height) - margin.top - margin.bottom;
+    const leftMargin = options.yLabel ? scalePx(p, options, 50, 0, 120) : 0;
+    const baseMargin = { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: DEFAULT_MARGIN.bottom, left: leftMargin };
+    const margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
+    const margin = withMobileRightPadding(p, options, margin0);
+    const canvasW = p.width;
+    const canvasH = p.height;
+    const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
+    const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+    const w = baseW - margin.left - margin.right;
+    const h = baseH - margin.top - margin.bottom;
+
+    const _responsiveScale = getResponsiveScale(p, options);
+    const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
+    const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
+    const axisLabelSize = scalePx(p, options, AXIS_LABEL_SIZE, 9, 16);
+    const barLabelSize = scalePx(p, options, BAR_LABEL_SIZE, 8, 14);
+    const tickTextOffset = scalePx(p, options, 8, 6, 12);
 
     p.push();
     p.translate(margin.left, margin.top);
-    drawMeta(p, options, w, h);
+    drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
 
     let maxVal = 0;
     rows.forEach(row => {
@@ -757,9 +1031,9 @@ function getAutoLabelColor(bgColor) {
         p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
         for(let i = 0; i <= NUM_TICKS; i++) {
           let xVal = barStartX + (barWidth / NUM_TICKS) * i;
-          p.line(xVal, h, xVal, h + TICK_LENGTH);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.CENTER, p.TOP);
-          p.text(Math.round((maxVal / NUM_TICKS) * i), xVal, h + 8);
+          p.line(xVal, h, xVal, h + tickLen);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.CENTER, p.TOP);
+          p.text(Math.round((maxVal / NUM_TICKS) * i), xVal, h + tickTextOffset);
           p.stroke(TICK_COLOR);
         }
         
@@ -800,7 +1074,7 @@ function getAutoLabelColor(bgColor) {
                 p.rect(rectX, by, rectW, barH);
 
                 if (labelPos !== 'none') {
-                  p.textSize(BAR_LABEL_SIZE); p.textAlign(p.LEFT, p.CENTER);
+                  p.textSize(barLabelSize); p.textAlign(p.LEFT, p.CENTER);
                   let txt = String(val);
                   let tw = p.textWidth(txt);
                   // Use label color protection for all label positions
@@ -824,7 +1098,7 @@ function getAutoLabelColor(bgColor) {
                   }
                 }
             });
-            p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(AXIS_LABEL_SIZE);
+            p.fill(TEXT_COLOR); p.textAlign(p.RIGHT, p.CENTER); p.textSize(axisLabelSize);
             p.text(truncate(p, lbl, labelSpace - 10), barStartX - 10, i * rowH + rowH/2);
         });
     } else {
@@ -838,8 +1112,8 @@ function getAutoLabelColor(bgColor) {
         p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
         for(let i = 0; i <= NUM_TICKS; i++) {
           let yVal = h - (h / NUM_TICKS) * i;
-          p.line(-TICK_LENGTH, yVal, 0, yVal);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
+          p.line(-tickLen, yVal, 0, yVal);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.RIGHT, p.CENTER);
           p.text(Math.round((maxVal / NUM_TICKS) * i), -8, yVal);
           p.stroke(TICK_COLOR);
         }
@@ -881,7 +1155,7 @@ function getAutoLabelColor(bgColor) {
                 p.rect(bx, rectY, barW, rectH);
 
                 if (labelPos !== 'none') {
-                  p.textSize(BAR_LABEL_SIZE); p.textAlign(p.CENTER, p.BOTTOM);
+                  p.textSize(barLabelSize); p.textAlign(p.CENTER, p.BOTTOM);
                   let txt = String(val);
                   // Use label color protection for all label positions
                   if (labelPos === 'inside') {
@@ -906,10 +1180,10 @@ function getAutoLabelColor(bgColor) {
             });
             let centerX = i * colW + colW/2;
             p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
-            p.line(centerX, h, centerX, h + TICK_LENGTH);
+            p.line(centerX, h, centerX, h + tickLen);
             p.noStroke();
-            p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(AXIS_LABEL_SIZE);
-            p.text(truncate(p, lbl, colW), centerX, h + 10);
+            p.fill(TEXT_COLOR); p.textAlign(p.CENTER, p.TOP); p.textSize(axisLabelSize);
+            p.text(truncate(p, lbl, colW), centerX, h + scalePx(p, options, 10, 8, 14));
         });
     }
     p.pop();
@@ -928,6 +1202,7 @@ function getAutoLabelColor(bgColor) {
    */
   p5.prototype.pie = function(data, options = {}) {
     const p = this;
+    ensureCanvasMatchesDisplay(p, options);
     let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
     
     const valCol = options.value || df.columns[1];
@@ -963,10 +1238,10 @@ function getAutoLabelColor(bgColor) {
             p.fill(180, 0, 0);
             p.noStroke();
             p.textAlign(p.CENTER, p.CENTER);
-            p.textSize(16);
+            p.textSize(scalePx(p, options, 16, 11, 18));
             p.text('Pie Chart Error: NaN Values Detected', p.width/2, p.height/2 - 40);
             
-            p.textSize(12);
+            p.textSize(scalePx(p, options, 12, 10, 14));
             p.fill(100, 0, 0);
             p.text(`${nanIndices.length} of ${allValues.length} values in '${valCol}' are NaN/null.`, p.width/2, p.height/2);
             p.text(`Pie charts cannot render with missing values.`, p.width/2, p.height/2 + 20);
@@ -1015,13 +1290,26 @@ function getAutoLabelColor(bgColor) {
     
     // Layout & Config
     options.textAlign = options.textAlign || p.LEFT;
-    
-    const margin = options.margin || { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: 40, left: DEFAULT_MARGIN.right };
-    const w = (options.width || p.width) - margin.left - margin.right;
-    const h = (options.height || p.height) - margin.top - margin.bottom;
+
+    const baseMargin = { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: 40, left: DEFAULT_MARGIN.right };
+    const margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
+    const margin = withMobileRightPadding(p, options, margin0);
+    const canvasW = p.width;
+    const canvasH = p.height;
+    const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
+    const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+    const w = baseW - margin.left - margin.right;
+    const h = baseH - margin.top - margin.bottom;
     const cx = w/2; 
     const cy = h/2;
-    const r = options.radius || Math.min(w, h)/2.5;
+    const r = options.radius || Math.min(w, h) / 2.5;
+
+    const _responsiveScale = getResponsiveScale(p, options);
+    const pieLabelSize = scalePx(p, options, PIE_LABEL_SIZE, 9, 14);
+    const pieOutsideOffset = isMobileLayout(p, options)
+      ? scalePx(p, options, 18, 12, 26)
+      : scalePx(p, options, 30, 18, 50);
+    const pieVerticalShift = (options.labelPos === 'outside') ? scalePx(p, options, 20, 10, 40) : 0;
     
     // Style check
     const isDonut = options.style === 'donut';
@@ -1034,12 +1322,11 @@ function getAutoLabelColor(bgColor) {
       options.title = `${lblCol} vs. ${valCol}`;
     }
     // Draw Metadata (Title, Subtitle, etc.), left-aligned
-    let pieMetaOpts = Object.assign({}, options, { textAlign: p.LEFT });
+    let pieMetaOpts = Object.assign({}, options, { textAlign: p.LEFT, _responsiveScale });
     drawMeta(p, pieMetaOpts, w, h);
     
     // Shift the pie center down if outside labels are used to clear title space.
-    let verticalShift = (options.labelPos === 'outside') ? 20 : 0; 
-    p.translate(cx, cy + verticalShift);
+    p.translate(cx, cy + pieVerticalShift);
     
     let startA = -p.HALF_PI;
     
@@ -1050,7 +1337,7 @@ function getAutoLabelColor(bgColor) {
 
       // Hover Detection (coordinates adjusted for the pie's new center)
       let mx = p.mouseX - (margin.left + cx);
-      let my = p.mouseY - (margin.top + cy + verticalShift);
+      let my = p.mouseY - (margin.top + cy + pieVerticalShift);
       let d = p.dist(0, 0, mx, my);
       let mouseAng = p.atan2(my, mx);
         
@@ -1109,7 +1396,7 @@ function getAutoLabelColor(bgColor) {
           let mid = startA + ang/2;
           // Label anchor radius: further out if outside, centered in ring if donut
           let tr = (options.labelPos === 'outside') 
-                   ? r + 30 
+                   ? r + pieOutsideOffset
                    : r * (isDonut ? (1 + (options.holeRadius || DONUT_HOLE_RADIUS)) / 2 : 0.65); // Center of ring or 65% radius
                    
           let tx = Math.cos(mid) * tr;
@@ -1154,28 +1441,65 @@ function getAutoLabelColor(bgColor) {
 
           // 2. Positioning & Alignment Fix
           p.noStroke(); 
-          p.textSize(options.labelSize || PIE_LABEL_SIZE);
+          p.textSize(options.labelSize || pieLabelSize);
+
+          // On mobile, outline ALL pie/donut labels for a unified look.
+          const outlineActive = isMobileLayout(p, options);
+          const outlineW = scalePx(p, options, 2, 1, 3);
           
           if (options.labelPos === 'outside') {
               // Alignment fix: Anchor away from pie center
               let align = (tx > 0) ? p.LEFT : p.RIGHT;
-              let buffer = (tx > 0) ? 5 : -5;
+              let buffer = (tx > 0) ? scalePx(p, options, 5, 3, 10) : -scalePx(p, options, 5, 3, 10);
               
               p.textAlign(align, p.CENTER);
+              if (outlineActive) {
+                p.stroke(255, 220);
+                p.strokeWeight(outlineW);
+              } else {
+                p.noStroke();
+              }
               p.fill(TEXT_COLOR);
               tx += buffer;
+
+              // Keep outside labels within chart bounds (especially on mobile)
+              const labelPad = scalePx(p, options, 6, 4, 10);
+              const maxOutsideLabelW = (options.outsideLabelMaxWidth !== undefined)
+                ? options.outsideLabelMaxWidth
+                : Math.min(
+                    scalePx(p, options, 140, 90, 180),
+                    Math.max(70, Math.floor(w * (isMobileLayout(p, options) ? 0.26 : 0.32)))
+                  );
+
+              // Truncate outside labels too (previously only truncated inside labels)
+              labelText = truncate(p, labelText, maxOutsideLabelW);
+              const tw = p.textWidth(labelText);
+
+              // tx is in local pie coords (after translating to center)
+              if (align === p.LEFT) {
+                tx = Math.min(tx, (cx - labelPad) - tw);
+              } else {
+                tx = Math.max(tx, (-cx + labelPad) + tw);
+              }
           } else {
               p.textAlign(p.CENTER, p.CENTER); 
               // Contrast check for inside labels
               let sliceColor = p.color(c);
               let brightness = (p.red(sliceColor) * 299 + p.green(sliceColor) * 587 + p.blue(sliceColor) * 114) / 1000;
-              p.fill((brightness > 150) ? TEXT_COLOR : 255);
+              const useDark = brightness > 150;
+              if (outlineActive) {
+                p.stroke(useDark ? 255 : 0, 200);
+                p.strokeWeight(outlineW);
+              } else {
+                p.noStroke();
+              }
+              p.fill(useDark ? TEXT_COLOR : 255);
           }
           
           // 3. Truncation and Visibility
-          let maxLabelW = (options.labelPos === 'outside') ? 100 : Math.abs(tr * ang * 0.9);
+          let maxLabelW = (options.labelPos === 'outside') ? scalePx(p, options, 100, 70, 160) : Math.abs(tr * ang * 0.9);
 
-          if (options.labelPos !== 'outside' && p.textWidth(labelText) > maxLabelW) {
+            if (options.labelPos !== 'outside' && p.textWidth(labelText) > maxLabelW) {
              while (labelText.length > 2 && p.textWidth(labelText + '…') > maxLabelW) {
                  labelText = labelText.slice(0, -1);
              }
@@ -1183,9 +1507,9 @@ function getAutoLabelColor(bgColor) {
           }
 
           // Hide label if slice is too small to fit text (only applicable to inside labels)
-          if (options.labelPos === 'outside' || ang > 0.15) {
+           if (options.labelPos === 'outside' || ang > 0.15) {
              p.text(labelText, tx, ty);
-          }
+           }
       }
         
       startA = endA;
@@ -1206,6 +1530,7 @@ function getAutoLabelColor(bgColor) {
    */
   p5.prototype.linePlot = function(data, options = {}) {
       const p = this;
+      ensureCanvasMatchesDisplay(p, options);
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
       const xCol = options.x || df.columns[0];
       const yCols = Array.isArray(options.y) ? options.y : [options.y || df.columns[1]];
@@ -1213,9 +1538,22 @@ function getAutoLabelColor(bgColor) {
       // Validate data for NaN values
       const validation = validateData(df, yCols, options, 'linePlot');
       
-      const margin = options.margin || DEFAULT_MARGIN;
-      const w = (options.width || p.width) - margin.left - margin.right;
-      const h = (options.height || p.height) - margin.top - margin.bottom;
+      const margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
+      const margin = withMobileRightPadding(p, options, margin0);
+      const canvasW = p.width;
+      const canvasH = p.height;
+      const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
+      const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+      const w = baseW - margin.left - margin.right;
+      const h = baseH - margin.top - margin.bottom;
+
+      const _responsiveScale = getResponsiveScale(p, options);
+      const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
+      const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
+      const dataLabelSize = scalePx(p, options, DATA_LABEL_SIZE, 9, 14);
+      const pointStrokeW = scalePx(p, options, POINT_STROKE_WEIGHT, 1, 4);
+      const pointHoverStrokeW = scalePx(p, options, POINT_HOVER_STROKE_WEIGHT, 1, 5);
+      const tickTextOffset = scalePx(p, options, 8, 6, 12);
       
       const ptSz = options.pointSize || DEFAULT_POINT_SIZE;
       const lnSz = options.lineSize || DEFAULT_LINE_SIZE;
@@ -1243,7 +1581,7 @@ function getAutoLabelColor(bgColor) {
       
       p.push();
       p.translate(margin.left, margin.top);
-      drawMeta(p, options, w, h);
+      drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
       
       // Axes
       p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
@@ -1270,8 +1608,8 @@ function getAutoLabelColor(bgColor) {
       // Y-Ticks (using nice intervals)
       yAxis.ticks.forEach(tickVal => {
           let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
-          p.line(-TICK_LENGTH, yVal, 0, yVal);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
+          p.line(-tickLen, yVal, 0, yVal);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.RIGHT, p.CENTER);
           p.text(formatTick(tickVal), -8, yVal);
           p.stroke(TICK_COLOR);
       });
@@ -1280,9 +1618,9 @@ function getAutoLabelColor(bgColor) {
       const tickInterval = Math.max(1, Math.floor(xs.length / 8));
         for(let i = 0; i < xs.length; i += tickInterval) {
           let xVal = p.map(i, 0, xs.length-1, 0, w);
-          p.stroke(TICK_COLOR); p.line(xVal, h, xVal, h + TICK_LENGTH);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.CENTER, p.TOP);
-          p.text(formatTick(xs[i]), xVal, h + 8);
+          p.stroke(TICK_COLOR); p.line(xVal, h, xVal, h + tickLen);
+          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.CENTER, p.TOP);
+          p.text(formatTick(xs[i]), xVal, h + tickTextOffset);
         }
 
       // Draw Lines
@@ -1324,13 +1662,13 @@ function getAutoLabelColor(bgColor) {
                   let isClicked = isHover && p.mouseIsPressed;
 
                   // 1. Draw Dot
-                  p.strokeWeight(isHollow ? POINT_STROKE_WEIGHT : 0);
+                  p.strokeWeight(isHollow ? pointStrokeW : 0);
                   if (isHollow) { p.stroke(c); p.fill(bgColor); } 
                   else { p.noStroke(); p.fill(c); }
 
                   if (isHover) {
                       p.cursor(p.HAND);
-                      if(isHollow) p.strokeWeight(POINT_HOVER_STROKE_WEIGHT);
+                      if(isHollow) p.strokeWeight(pointHoverStrokeW);
                       else { let hc = p.color(c); hc.setAlpha(HOVER_ALPHA); p.fill(hc); p.circle(px, py, ptSz * POINT_HOVER_SCALE); }
                       
                       // Only show tooltip if NOT showing static labels
@@ -1354,7 +1692,7 @@ function getAutoLabelColor(bgColor) {
                       // Use label color protection: auto choose black/white for contrast with point color
                       let labelBg = c;
                       p.fill(getAutoLabelColor(labelBg));
-                      p.textSize(DATA_LABEL_SIZE);
+                      p.textSize(dataLabelSize);
                       p.textAlign(p.CENTER, p.CENTER);
 
                       let txt = String(val);
@@ -1390,6 +1728,7 @@ function getAutoLabelColor(bgColor) {
    */
   p5.prototype.scatter = function(data, options = {}) {
       const p = this;
+      ensureCanvasMatchesDisplay(p, options);
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
       const xCol = options.x || df.columns[0];
       const yCol = options.y || df.columns[1];
@@ -1397,9 +1736,22 @@ function getAutoLabelColor(bgColor) {
       // Validate data for NaN values
       const validation = validateData(df, [xCol, yCol], options, 'scatter');
       
-      const margin = options.margin || DEFAULT_MARGIN;
-      const w = (options.width || p.width) - margin.left - margin.right;
-      const h = (options.height || p.height) - margin.top - margin.bottom;
+      const margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
+      const margin = withMobileRightPadding(p, options, margin0);
+      const canvasW = p.width;
+      const canvasH = p.height;
+      const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
+      const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+      const w = baseW - margin.left - margin.right;
+      const h = baseH - margin.top - margin.bottom;
+
+      const _responsiveScale = getResponsiveScale(p, options);
+      const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
+      const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
+      const dataLabelSize = scalePx(p, options, DATA_LABEL_SIZE, 9, 14);
+      const pointStrokeW = scalePx(p, options, POINT_STROKE_WEIGHT, 1, 4);
+      const pointHoverStrokeW = scalePx(p, options, POINT_HOVER_STROKE_WEIGHT, 1, 5);
+      const tickTextOffset = scalePx(p, options, 8, 6, 12);
 
       // --- Data Extraction ---
       const rows = df.rows;
@@ -1469,7 +1821,7 @@ function getAutoLabelColor(bgColor) {
 
       p.push();
       p.translate(margin.left, margin.top);
-      drawMeta(p, options, w, h);
+      drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
       
       // --- Axes ---
       p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
@@ -1495,17 +1847,17 @@ function getAutoLabelColor(bgColor) {
       p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
       xAxis.ticks.forEach(tickVal => {
         let xVal = p.map(tickVal, xAxis.min, xAxis.max, 0, w);
-        p.line(xVal, h, xVal, h + TICK_LENGTH);
-        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.CENTER, p.TOP);
-        p.text(formatTick(tickVal), xVal, h + 8);
+        p.line(xVal, h, xVal, h + tickLen);
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.CENTER, p.TOP);
+        p.text(formatTick(tickVal), xVal, h + tickTextOffset);
         p.stroke(TICK_COLOR);
       });
       
       // Y-Ticks (using nice intervals)
       yAxis.ticks.forEach(tickVal => {
         let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
-        p.stroke(TICK_COLOR); p.line(-TICK_LENGTH, yVal, 0, yVal);
-        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); p.textAlign(p.RIGHT, p.CENTER);
+        p.stroke(TICK_COLOR); p.line(-tickLen, yVal, 0, yVal);
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.RIGHT, p.CENTER);
         p.text(formatTick(tickVal), -8, yVal);
         p.stroke(TICK_COLOR);
       });
@@ -1568,7 +1920,7 @@ function getAutoLabelColor(bgColor) {
           let isClicked = isHover && p.mouseIsPressed;
 
           // Style Setup
-          p.strokeWeight(isHollow ? POINT_STROKE_WEIGHT : 0);
+            p.strokeWeight(isHollow ? pointStrokeW : 0);
           if (isHollow) {
               p.stroke(ptColor); 
               p.fill(bgColor); 
@@ -1580,7 +1932,7 @@ function getAutoLabelColor(bgColor) {
           // Hover State
           if (isHover) {
                p.cursor(p.HAND);
-               if(isHollow) p.strokeWeight(POINT_HOVER_STROKE_WEIGHT);
+            if(isHollow) p.strokeWeight(pointHoverStrokeW);
                else { 
                    let hc = p.color(ptColor); 
                    hc.setAlpha(HOVER_ALPHA); 
@@ -1611,7 +1963,7 @@ function getAutoLabelColor(bgColor) {
           if (drawLabel) {
               p.noStroke();
               p.fill(TEXT_COLOR);
-              p.textSize(DATA_LABEL_SIZE);
+              p.textSize(dataLabelSize);
               p.textAlign(p.CENTER, p.CENTER);
               
               let txt = sizeCol ? String(sizes[i]) : String(ys[i]); 
@@ -1640,6 +1992,7 @@ function getAutoLabelColor(bgColor) {
  */
 p5.prototype.hist = function(data, options = {}) {
     const p = this;
+  ensureCanvasMatchesDisplay(p, options);
     let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
     const col = options.x || options.column || df.columns[0];
     
@@ -1706,9 +2059,20 @@ p5.prototype.hist = function(data, options = {}) {
     
     // --- Layout and Scaling ---
     const maxCount = Math.max(...counts);
-    const margin = options.margin || DEFAULT_MARGIN;
-    const w = (options.width || p.width) - margin.left - margin.right;
-    const h = (options.height || p.height) - margin.top - margin.bottom;
+    const margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
+    const margin = withMobileRightPadding(p, options, margin0);
+    const canvasW = p.width;
+    const canvasH = p.height;
+    const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
+    const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
+    const w = baseW - margin.left - margin.right;
+    const h = baseH - margin.top - margin.bottom;
+
+    const _responsiveScale = getResponsiveScale(p, options);
+    const tickLen = scalePx(p, options, TICK_LENGTH, 3, 10);
+    const tickLabelSize = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
+    const histLabelSize = scalePx(p, options, HIST_LABEL_SIZE, 8, 14);
+    const tickTextOffset = scalePx(p, options, 8, 6, 12);
     
     const maxAxisVal = Math.ceil(maxCount / 5) * 5;
     const barW = w / finalBins; 
@@ -1740,7 +2104,7 @@ p5.prototype.hist = function(data, options = {}) {
     options.title = options.title || `Histogram of ${col}`;
     
     p.textFont(options.font || DEFAULT_FONT);
-    drawMeta(p, options, w, h);
+    drawMeta(p, Object.assign({}, options, { _responsiveScale }), w, h);
 
     // --- Axes and Ticks ---
     p.textFont(options.font || DEFAULT_FONT);
@@ -1758,23 +2122,23 @@ p5.prototype.hist = function(data, options = {}) {
     p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
     yAxis.ticks.forEach(tickVal => {
         let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
-        p.line(-TICK_LENGTH, yVal, 0, yVal);
+      p.line(-tickLen, yVal, 0, yVal);
         
         // Ensure Y-axis labels have no stroke
-        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(TICK_LABEL_SIZE); 
+      p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize);
         p.textAlign(p.RIGHT, p.CENTER);
         p.text(tickVal, -8, yVal);
         p.stroke(TICK_COLOR);
     });
     
     // X-Ticks (At Edges)
-    p.fill(TEXT_COLOR); p.textSize(TICK_LABEL_SIZE);
-    const TEXT_BOX_WIDTH = 30; // Define text box width for 4-argument p.text()
-    const TICK_LABEL_PADDING = 3; 
+    p.fill(TEXT_COLOR); p.textSize(tickLabelSize);
+    const TEXT_BOX_WIDTH = scalePx(p, options, 30, 22, 40); // Define text box width for 4-argument p.text()
+    const TICK_LABEL_PADDING = scalePx(p, options, 3, 2, 6);
     
     // Controlled Label Decimation ---
     // 1. Estimate the space needed for a label (e.g., 20px) plus a buffer (5px) = 25px
-    const minLabelSpace = 25; 
+    const minLabelSpace = scalePx(p, options, 25, 18, 40);
     
     // 2. Calculate how many bins fit in that space
     let labelEvery = Math.max(1, Math.ceil(minLabelSpace / barW));
@@ -1784,7 +2148,7 @@ p5.prototype.hist = function(data, options = {}) {
         const xPos = i * barW; 
         
         p.stroke(TICK_COLOR); 
-        p.line(xPos, h, xPos, h + TICK_LENGTH);
+        p.line(xPos, h, xPos, h + tickLen);
 
         // Decide if we should show the label based on the controlled decimation
         const showLabel = (i % labelEvery === 0 || i === finalBins || i === 0);
@@ -1803,7 +2167,7 @@ p5.prototype.hist = function(data, options = {}) {
                 align = p.LEFT;
                 
                 p.textAlign(align, p.TOP);
-                p.text(labelText, textX, h + 8, TEXT_BOX_WIDTH); 
+                p.text(labelText, textX, h + tickTextOffset, TEXT_BOX_WIDTH); 
 
             } else if (i === finalBins) {
                 // **FIX: Right Edge Special Alignment with Padding**
@@ -1812,7 +2176,7 @@ p5.prototype.hist = function(data, options = {}) {
                 align = p.RIGHT; 
                 
                 p.textAlign(align, p.TOP);
-                p.text(labelText, xPos + TICK_LABEL_PADDING, h + 8); 
+                p.text(labelText, xPos + TICK_LABEL_PADDING, h + tickTextOffset); 
 
             } else {
                 // Internal Ticks: Center aligned using 4-argument p.text()
@@ -1825,7 +2189,7 @@ p5.prototype.hist = function(data, options = {}) {
                 
                 // The p.text function with 4 arguments treats the x, y coordinates as the corner
                 // of the text box.
-                p.text(labelText, textX, h + 8, TEXT_BOX_WIDTH); 
+                p.text(labelText, textX, h + tickTextOffset, TEXT_BOX_WIDTH); 
             }
         }
     });
@@ -1878,7 +2242,7 @@ p5.prototype.hist = function(data, options = {}) {
             p.noStroke(); 
             p.fill(TEXT_COLOR); 
             p.textAlign(p.CENTER, p.BOTTOM); 
-            p.textSize(HIST_LABEL_SIZE);
+          p.textSize(histLabelSize);
             
             p.text(count, rectX + barW / 2, rectY - 2); 
         }
@@ -1914,6 +2278,7 @@ p5.prototype.hist = function(data, options = {}) {
    */
   p5.prototype.table = function(data, options = {}) {
       const p = this;
+      ensureCanvasMatchesDisplay(p, options);
       // Convert data to DataFrame if not already
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
       const id = options.id || 'p5chart_table';
@@ -1934,10 +2299,28 @@ p5.prototype.hist = function(data, options = {}) {
       const state = p.chart._tableStates[id];
       
       // Layout dimensions (calculate early for search input positioning)
-      const x = options.x || 20; 
-      const y = options.y || 80;
-      const w = options.width || p.width - 40;
-      const rowH = TABLE_ROW_HEIGHT;
+      const _responsiveScale = getResponsiveScale(p, options);
+      let x = (options.x !== undefined) ? options.x : scalePx(p, options, 20, 8, 24);
+      let y = (options.y !== undefined) ? options.y : scalePx(p, options, 80, 40, 100);
+      // On small canvases, prevent large fixed offsets from pushing the table off-screen.
+      if (options.responsive !== false) {
+        x = clampNumber(x, 0, Math.max(0, p.width - 10));
+        y = clampNumber(y, 0, Math.max(0, Math.round(p.height * 0.25)));
+      }
+
+      // Mobile-only right padding (to match the left gutter from x).
+      const rightPad = getMobileRightPadding(p, options);
+      const maxTableW = Math.max(50, p.width - x - rightPad);
+      const w = Math.min(
+        (options.width !== undefined) ? options.width : (p.width - scalePx(p, options, 40, 16, 60)),
+        maxTableW
+      );
+      let rowH = scalePx(p, options, TABLE_ROW_HEIGHT, 22, 40);
+      const tableTextSize = scalePx(p, options, TABLE_TEXT_SIZE, 10, 14);
+      const titleSize = scalePx(p, options, TITLE_SIZE, 12, 18);
+      const axisLabelSize = scalePx(p, options, AXIS_LABEL_SIZE, 10, 16);
+      const searchWidth = Math.min(scalePx(p, options, TABLE_SEARCH_WIDTH, 110, 220), Math.max(110, Math.floor(w * 0.7)));
+      const arrowSize = scalePx(p, options, TABLE_ARROW_SIZE, 18, 28);
       
       // Only create search input if searchable is true
       if (searchable) {
@@ -1948,8 +2331,8 @@ p5.prototype.hist = function(data, options = {}) {
               inp.attribute('placeholder', 'Search...');
               inp.style('padding', '4px 8px');
               inp.style('font-family', 'sans-serif');
-              inp.style('font-size', AXIS_LABEL_SIZE + 'px');
-              inp.style('width', TABLE_SEARCH_WIDTH + 'px');
+            inp.style('font-size', axisLabelSize + 'px');
+            inp.style('width', searchWidth + 'px');
               inp.style('border', '1px solid #ccc');
               inp.style('border-radius', '3px');
               p.chart.inputs[id] = inp;
@@ -1962,7 +2345,21 @@ p5.prototype.hist = function(data, options = {}) {
       if (search) rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(search)));
       
       // Pagination calculations
-      const maxRows = options.maxRows || TABLE_MAX_ROWS;
+      let maxRows = options.maxRows || TABLE_MAX_ROWS;
+
+      // Auto-fit table height on small canvases (avoid clipping).
+      if (options.responsive !== false) {
+        const bottomChrome = scalePx(p, options, 90, 70, 140); // space for search + pagination
+        const availableH = p.height - y - bottomChrome;
+        if (availableH > 0) {
+          const fitRows = Math.max(1, Math.floor(availableH / rowH) - 1); // minus header
+          maxRows = Math.min(maxRows, fitRows);
+          // If we’re tight, also compress row height a bit (down to 18px).
+          if ((maxRows + 1) * rowH > availableH) {
+            rowH = Math.max(18, Math.floor(availableH / (maxRows + 1)));
+          }
+        }
+      }
       const totalPages = Math.ceil(rows.length / maxRows);
       const currentPage = Math.min(state.currentPage, totalPages - 1);
       state.currentPage = Math.max(0, currentPage);
@@ -1978,7 +2375,16 @@ p5.prototype.hist = function(data, options = {}) {
       // Update search input position to bottom left
       if (searchable && p.chart.inputs[id]) {
           const tableBottom = y + (dispRows.length + 1) * rowH;
-          p.chart.inputs[id].position(x, tableBottom + 15);
+          // If canvas is CSS-scaled, convert canvas coords -> page coords so inputs stay aligned.
+          const m = getCanvasDisplayMetrics(p);
+          const pageX = m.left + x * (m.width && p.width ? (m.width / p.width) : 1);
+          const pageY = m.top + (tableBottom + scalePx(p, options, 15, 10, 22)) * (m.height && p.height ? (m.height / p.height) : 1);
+          p.chart.inputs[id].position(pageX, pageY);
+          // Keep sizing in sync for responsive layouts / canvas resizes
+          p.chart.inputs[id].style('font-size', axisLabelSize + 'px');
+          // Scale width into CSS pixels so it matches the drawn table.
+          const widthScale = m.width && p.width ? (m.width / p.width) : 1;
+          p.chart.inputs[id].style('width', Math.max(90, Math.round(searchWidth * widthScale)) + 'px');
       }
       
       // Interactive hover - track which cell is hovered
@@ -2007,9 +2413,9 @@ p5.prototype.hist = function(data, options = {}) {
       // Draw title (without page count)
       const title = options.title || 'Data Table';
       p.push();
-      p.translate(x, y - 30);
+      p.translate(x, y - scalePx(p, options, 30, 18, 40));
       p.fill(TEXT_COLOR); 
-      p.textSize(TITLE_SIZE); 
+      p.textSize(titleSize);
       p.textStyle(p.BOLD);
       p.textAlign(p.LEFT, p.BOTTOM); 
       p.textFont(DEFAULT_FONT);
@@ -2022,7 +2428,7 @@ p5.prototype.hist = function(data, options = {}) {
         // Draw header row
         p.fill(headerColor); p.noStroke(); p.rect(0, 0, w, rowH);
         p.fill(0); p.textAlign(p.LEFT, p.CENTER); p.textStyle(p.NORMAL); p.textFont(DEFAULT_FONT);
-        p.textSize(TABLE_TEXT_SIZE);
+        p.textSize(tableTextSize);
         cols.forEach((c, i) => {
             // Highlight header on hover
             if (hoveredCell && hoveredCell.row === 0 && hoveredCell.col === i) {
@@ -2118,12 +2524,11 @@ p5.prototype.hist = function(data, options = {}) {
           
           p.push();
           p.textFont(DEFAULT_FONT);
-          p.textSize(TABLE_TEXT_SIZE);
+          p.textSize(tableTextSize);
           
           // Arrow button dimensions
-          const arrowSize = TABLE_ARROW_SIZE;
-          const spacing = 5;
-          const pageTextWidth = 50;
+          const spacing = scalePx(p, options, 5, 3, 8);
+          const pageTextWidth = scalePx(p, options, 50, 40, 70);
           
           // Page text: "1 of 4"
           const pageText = `${state.currentPage + 1} of ${totalPages}`;
@@ -2207,6 +2612,7 @@ p5.prototype.hist = function(data, options = {}) {
    */
   p5.prototype.mapChart = function(data, options = {}) {
       const p = this;
+      ensureCanvasMatchesDisplay(p, options);
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
 
       // ---- Robust canvas event binding helpers (works across global/instance mode) ----
@@ -2278,14 +2684,40 @@ p5.prototype.hist = function(data, options = {}) {
               dragStartX: 0,
               dragStartY: 0,
               dragStartLat: 0,
-              dragStartLon: 0
+            dragStartLon: 0,
+            _lastCanvasW: p.width,
+              _lastCanvasH: p.height,
+              _userZoom: false,
+              _needsTileReload: false
           };
       }
       const state = p.chart._mapState;
+
+        // If the canvas size changes (common on mobile resize/orientation changes),
+        // adjust zoom to keep points fitting without requiring sketch changes.
+        if (options.zoom === undefined) {
+          const sizeChanged = state._lastCanvasW !== p.width || state._lastCanvasH !== p.height;
+          if (sizeChanged) {
+              // Only auto-adjust zoom if the user hasn't manually zoomed.
+              if (!state._userZoom) {
+                // Always recompute a fit-to-bounds zoom for the current dimensions.
+                // This lets the map shrink and then expand back naturally.
+                state.zoom = autoZoom;
+              }
+
+              // Refresh tiles for the new canvas size.
+              state.tiles = {};
+            state._lastCanvasW = p.width;
+            state._lastCanvasH = p.height;
+            // Defer tile loading until after helpers are defined.
+            state._needsTileReload = true;
+          }
+        }
       
       // Style options
+      const _responsiveScale = getResponsiveScale(p, options);
       const pointColor = options.pointColor || p.color(MAP_POINT_COLOR);
-      const pointSize = options.pointSize || MAP_POINT_SIZE;
+      const pointSize = options.pointSize || scalePx(p, options, MAP_POINT_SIZE, 8, 16);
       const showLabels = options.showLabels !== false;
       const showControls = options.showControls !== false;
       
@@ -2381,8 +2813,9 @@ p5.prototype.hist = function(data, options = {}) {
           }
       };
       
-      // Load tiles if needed
-      if (Object.keys(state.tiles).length === 0) {
+        // Load tiles if needed
+        if (state._needsTileReload || Object.keys(state.tiles).length === 0) {
+          state._needsTileReload = false;
           loadVisibleTiles();
       }
       
@@ -2419,7 +2852,7 @@ p5.prototype.hist = function(data, options = {}) {
               if (showLabels && row[labelCol]) {
                   p.fill(0);
                   p.textAlign(p.CENTER, p.BOTTOM);
-                  p.textSize(MAP_LABEL_SIZE);
+                  p.textSize(scalePx(p, options, MAP_LABEL_SIZE, 9, 14));
                   p.text(row[labelCol], pos.x, pos.y - (isHovered ? pointSize * 0.6 : pointSize * 0.5));
               }
           }
@@ -2434,24 +2867,30 @@ p5.prototype.hist = function(data, options = {}) {
           if (h.row[labelCol]) lines.push(String(h.row[labelCol]));
           if (h.row[valueCol]) lines.push(`${valueCol}: ${Number(h.row[valueCol]).toLocaleString()}`);
           lines.push(`Lat: ${Number(h.row[latCol]).toFixed(4)}, Lon: ${Number(h.row[lonCol]).toFixed(4)}`);
-          
-          p.textSize(TOOLTIP_TEXT_SIZE);
+
+            const tipTextSize = scalePx(p, options, TOOLTIP_TEXT_SIZE, 10, 14);
+            const tipPad = scalePx(p, options, TOOLTIP_PADDING, 6, 14);
+            const tipLineH = scalePx(p, options, TOOLTIP_LINE_HEIGHT, 12, 22);
+            const tipOffset = scalePx(p, options, TOOLTIP_OFFSET, 10, 18);
+            const tipRadius = scalePx(p, options, TOOLTIP_BORDER_RADIUS, 3, 6);
+
+            p.textSize(tipTextSize);
           let maxWidth = 0;
           lines.forEach(l => { maxWidth = Math.max(maxWidth, p.textWidth(l)); });
-          let boxW = maxWidth + (TOOLTIP_PADDING * 2);
-          let boxH = lines.length * TOOLTIP_LINE_HEIGHT + TOOLTIP_PADDING;
+            let boxW = maxWidth + (tipPad * 2);
+            let boxH = lines.length * tipLineH + tipPad;
           
-          let tx = p.mouseX + TOOLTIP_OFFSET;
-          let ty = p.mouseY + TOOLTIP_OFFSET;
-          if (tx + boxW > p.width) tx = p.mouseX - boxW - TOOLTIP_OFFSET;
-          if (ty + boxH > p.height) ty = p.mouseY - boxH - TOOLTIP_OFFSET;
+            let tx = p.mouseX + tipOffset;
+            let ty = p.mouseY + tipOffset;
+            if (tx + boxW > p.width) tx = p.mouseX - boxW - tipOffset;
+            if (ty + boxH > p.height) ty = p.mouseY - boxH - tipOffset;
           
           p.noStroke();
           p.fill(0, 0, 0, 220);
-          p.rect(tx, ty, boxW, boxH, TOOLTIP_BORDER_RADIUS);
+            p.rect(tx, ty, boxW, boxH, tipRadius);
           p.fill(255);
           p.textAlign(p.LEFT, p.TOP);
-          lines.forEach((l, i) => p.text(l, tx + TOOLTIP_PADDING, ty + 8 + i * TOOLTIP_LINE_HEIGHT));
+            lines.forEach((l, i) => p.text(l, tx + tipPad, ty + scalePx(p, options, 8, 6, 10) + i * tipLineH));
       } else {
           p.cursor(p.ARROW);
       }
@@ -2460,13 +2899,16 @@ p5.prototype.hist = function(data, options = {}) {
       if (showControls) {
           p.fill(255, 240);
           p.noStroke();
-          p.rect(10, 10, 150, 60, 5);
+          const pad = scalePx(p, options, 10, 6, 14);
+          const boxW = scalePx(p, options, 150, 120, 200);
+          const boxH = scalePx(p, options, 60, 48, 90);
+          p.rect(pad, pad, boxW, boxH, scalePx(p, options, 5, 3, 8));
           p.fill(0);
           p.textAlign(p.LEFT, p.TOP);
-          p.textSize(AXIS_LABEL_SIZE);
-          p.text('Drag: Pan', 15, 15);
-          p.text('Scroll: Zoom', 15, 32);
-          p.text(`Zoom: ${state.zoom}`, 15, 49);
+          p.textSize(scalePx(p, options, AXIS_LABEL_SIZE, 10, 16));
+          p.text('Drag: Pan', pad + scalePx(p, options, 5, 3, 8), pad + scalePx(p, options, 5, 3, 8));
+          p.text('Scroll: Zoom', pad + scalePx(p, options, 5, 3, 8), pad + scalePx(p, options, 22, 16, 34));
+          p.text(`Zoom: ${state.zoom}`, pad + scalePx(p, options, 5, 3, 8), pad + scalePx(p, options, 39, 28, 58));
       }
       
       p.pop();
@@ -2519,6 +2961,7 @@ p5.prototype.hist = function(data, options = {}) {
                 state.zoom = Math.min(18, state.zoom + 1);
               }
               if (state.zoom !== prevZoom) {
+                state._userZoom = true;
                 // Clear tiles across zoom levels to avoid unbounded growth and stale tiles.
                 state.tiles = {};
                 loadVisibleTiles();

@@ -33,7 +33,7 @@ function draw() {
     // ---------------------------
     // 2. TEXT & METADATA
     // ---------------------------
-    title: "Comprehensive Line Plot", // Chart Title
+    title: "Comprehensive Line Plot of The World Today and More More More Yay", // Chart Title
     subtitle: "Analysis of Trends over Time", // Subtitle
     author: "Data Science Team",      // Footer: Author
     source: "Sensor Array #4",        // Footer: Source

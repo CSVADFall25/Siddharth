@@ -78,10 +78,11 @@ function draw() {
     // ---------------------------
     font: "Arial",          // Font family
     textAlign: LEFT,        // Alignment: LEFT, CENTER, RIGHT
-    
+
+    subtitleBold: false,    // Bold subtitle?
+
     titleSize: 16,
     subtitleSize: 13,
-    subtitleBold: false,    // Bold subtitle?
     authorFontSize: 14,
     xLabelSize: 12,
     yLabelSize: 12,
