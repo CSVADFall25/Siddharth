@@ -2473,4 +2473,118 @@ p5.prototype.hist = function(data, options = {}) {
       if (p._handleMapKeys) p._handleMapKeys();
   };
 
+  // ==========================================
+  // 10. EXPORT UTILITIES
+  // ==========================================
+
+  /**
+   * Export current canvas as PNG image
+   * Works for all chart types
+   * @param {string} filename - Name of the file (default: 'chart.png')
+   */
+  p5.prototype.toPNG = function(filename = 'chart.png') {
+    const p = this;
+    
+    // Ensure filename has .png extension
+    if (!filename.endsWith('.png')) {
+      filename += '.png';
+    }
+    
+    // Use p5.js built-in save() to export canvas as PNG
+    p.save(filename);
+  };
+
+  /**
+   * Export table data as CSV file
+   * Works for table visualizations
+   * @param {DataFrame|Array|Object} data - The data to export (DataFrame, array of objects, or 2D array)
+   * @param {string} filename - Name of the file (default: 'data.csv')
+   * @param {Object} options - Export options
+   *   - columns: Array of column names to include (default: all columns)
+   *   - delimiter: Character to use as delimiter (default: ',')
+   *   - includeHeader: Whether to include header row (default: true)
+   */
+  p5.prototype.toCSV = function(data, filename = 'data.csv', options = {}) {
+    const p = this;
+    
+    // Ensure filename has .csv extension
+    if (!filename.endsWith('.csv')) {
+      filename += '.csv';
+    }
+    
+    // Convert data to DataFrame if not already
+    let df;
+    if (data instanceof p.chart.DataFrame) {
+      df = data;
+    } else if (Array.isArray(data)) {
+      df = new p.chart.DataFrame(data);
+    } else {
+      console.error('toCSV: Data must be a DataFrame, array of objects, or 2D array');
+      return;
+    }
+    
+    // Get options with defaults
+    const delimiter = options.delimiter || ',';
+    const includeHeader = options.includeHeader !== false;
+    const columns = options.columns || df.columns;
+    
+    // Build CSV string
+    let csvContent = '';
+    
+    // Add header row
+    if (includeHeader) {
+      csvContent += columns.map(col => escapeCSVField(col, delimiter)).join(delimiter) + '\n';
+    }
+    
+    // Add data rows
+    const rows = df.rows;
+    rows.forEach(row => {
+      const rowValues = columns.map(col => {
+        const value = row[col];
+        // Handle NaN/null values
+        if (value === null || value === undefined || 
+            (typeof value === 'number' && isNaN(value))) {
+          return '';
+        }
+        return escapeCSVField(String(value), delimiter);
+      });
+      csvContent += rowValues.join(delimiter) + '\n';
+    });
+    
+    // Create a Blob and trigger download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    
+    if (link.download !== undefined) {
+      // Feature detection for download attribute
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } else {
+      console.error('toCSV: Browser does not support download attribute');
+    }
+  };
+
+  /**
+   * Helper function to escape CSV field values
+   * Handles quotes, commas, and newlines properly
+   */
+  function escapeCSVField(field, delimiter = ',') {
+    field = String(field);
+    
+    // If field contains delimiter, quotes, or newlines, wrap in quotes
+    if (field.includes(delimiter) || field.includes('"') || field.includes('\n') || field.includes('\r')) {
+      // Escape existing quotes by doubling them
+      field = field.replace(/"/g, '""');
+      return `"${field}"`;
+    }
+    
+    return field;
+  }
+
 })();
