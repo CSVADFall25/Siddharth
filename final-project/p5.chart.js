@@ -2208,6 +2208,24 @@ p5.prototype.hist = function(data, options = {}) {
   p5.prototype.mapChart = function(data, options = {}) {
       const p = this;
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
+
+      // ---- Robust canvas event binding helpers (works across global/instance mode) ----
+      const getCanvasElement = () => {
+        // p.canvas is the HTMLCanvasElement in most p5 builds; fallback to renderer elt.
+        return p.canvas || (p._renderer && p._renderer.elt) || null;
+      };
+
+      const getCanvasCoordsFromEvent = (e) => {
+        const elt = getCanvasElement();
+        if (!elt || !e) return { x: p.mouseX, y: p.mouseY };
+        const rect = elt.getBoundingClientRect();
+        // Convert client pixels into canvas coordinate space (handles CSS scaling).
+        const scaleX = rect.width ? (p.width / rect.width) : 1;
+        const scaleY = rect.height ? (p.height / rect.height) : 1;
+        const x = (e.clientX - rect.left) * scaleX;
+        const y = (e.clientY - rect.top) * scaleY;
+        return { x, y };
+      };
       
       // Column mapping
       const latCol = options.lat || options.latitude || 'lat';
@@ -2218,16 +2236,34 @@ p5.prototype.hist = function(data, options = {}) {
       // Validate data for NaN values
       const validation = validateData(df, [latCol, lonCol], options, 'mapChart');
       
-      // Auto-calculate center from data if not provided
+      // Auto-calculate center and zoom to fit all points
       let autoCenterLat = 37.8;
       let autoCenterLon = -96;
-      if (!options.centerLat || !options.centerLon) {
-          const lats = df.col(latCol).map(Number).filter(v => !isNaN(v));
-          const lons = df.col(lonCol).map(Number).filter(v => !isNaN(v));
-          if (lats.length > 0 && lons.length > 0) {
-              autoCenterLat = lats.reduce((a, b) => a + b, 0) / lats.length;
-              autoCenterLon = lons.reduce((a, b) => a + b, 0) / lons.length;
-          }
+      let autoZoom = MAP_DEFAULT_ZOOM;
+      
+      const lats = df.col(latCol).map(Number).filter(v => !isNaN(v));
+      const lons = df.col(lonCol).map(Number).filter(v => !isNaN(v));
+      
+      if (lats.length > 0 && lons.length > 0) {
+          // Calculate bounds
+          const minLat = Math.min(...lats);
+          const maxLat = Math.max(...lats);
+          const minLon = Math.min(...lons);
+          const maxLon = Math.max(...lons);
+          
+          // Calculate center
+          autoCenterLat = (minLat + maxLat) / 2;
+          autoCenterLon = (minLon + maxLon) / 2;
+          
+          // Calculate zoom to fit all points with padding
+          const latRange = maxLat - minLat;
+          const lonRange = maxLon - minLon;
+          
+          // Estimate zoom level to fit the bounds
+          const WORLD_DIM = { height: 256, width: 256 };
+          const zoomLat = Math.floor(Math.log2(p.height * 0.85 / (latRange * WORLD_DIM.height / 180)));
+          const zoomLon = Math.floor(Math.log2(p.width * 0.85 / (lonRange * WORLD_DIM.width / 360)));
+          autoZoom = Math.min(Math.max(Math.min(zoomLat, zoomLon), 2), 18); // Clamp between 2-18
       }
       
       // Map state
@@ -2235,9 +2271,14 @@ p5.prototype.hist = function(data, options = {}) {
           p.chart._mapState = {
               centerLat: options.centerLat || autoCenterLat,
               centerLon: options.centerLon || autoCenterLon,
-              zoom: options.zoom || MAP_DEFAULT_ZOOM,
+              zoom: options.zoom || autoZoom,
               tiles: {},
-              hoveredPoint: null
+              hoveredPoint: null,
+              isDragging: false,
+              dragStartX: 0,
+              dragStartY: 0,
+              dragStartLat: 0,
+              dragStartLon: 0
           };
       }
       const state = p.chart._mapState;
@@ -2262,6 +2303,22 @@ p5.prototype.hist = function(data, options = {}) {
               x: p.width / 2 + (x - centerX),
               y: p.height / 2 + (y - centerY)
           };
+      };
+      
+      // Helper: Convert pixel coordinates to lat/lon
+      const pixelToLatLon = (x, y) => {
+          let centerX = (state.centerLon + 180) / 360 * Math.pow(2, state.zoom) * 256;
+          let centerLatRad = state.centerLat * p.PI / 180;
+          let centerY = (1 - Math.log(Math.tan(centerLatRad) + 1 / Math.cos(centerLatRad)) / p.PI) / 2 * Math.pow(2, state.zoom) * 256;
+          
+          let worldX = centerX + (x - p.width / 2);
+          let worldY = centerY + (y - p.height / 2);
+          
+          let lon = worldX / (Math.pow(2, state.zoom) * 256) * 360 - 180;
+          let n = p.PI - 2 * p.PI * worldY / (Math.pow(2, state.zoom) * 256);
+          let lat = 180 / p.PI * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+          
+          return { lat, lon };
       };
       
       // Helper: Load visible tiles
@@ -2403,57 +2460,139 @@ p5.prototype.hist = function(data, options = {}) {
       if (showControls) {
           p.fill(255, 240);
           p.noStroke();
-          p.rect(10, 10, 150, 78, 5);
+          p.rect(10, 10, 150, 60, 5);
           p.fill(0);
           p.textAlign(p.LEFT, p.TOP);
           p.textSize(AXIS_LABEL_SIZE);
-          p.text('Arrow keys: Pan', 15, 15);
-          p.text('+/- keys: Zoom', 15, 32);
-          p.text('Scroll: Zoom', 15, 49);
-          p.text(`Zoom: ${state.zoom}`, 15, 64);
+          p.text('Drag: Pan', 15, 15);
+          p.text('Scroll: Zoom', 15, 32);
+          p.text(`Zoom: ${state.zoom}`, 15, 49);
       }
       
       p.pop();
       
-      // Handle keyboard input for map navigation
-      p._handleMapKeys = function() {
-          let panAmount = MAP_PAN_AMOUNT;
-          if (p.keyIsDown(p.LEFT_ARROW)) state.centerLon -= panAmount;
-          if (p.keyIsDown(p.RIGHT_ARROW)) state.centerLon += panAmount;
-          if (p.keyIsDown(p.UP_ARROW)) state.centerLat += panAmount;
-          if (p.keyIsDown(p.DOWN_ARROW)) state.centerLat -= panAmount;
+      // Handle mouse drag for panning
+        p._handleMapMousePressed = function(x = p.mouseX, y = p.mouseY) {
+          if (x >= 0 && x <= p.width && y >= 0 && y <= p.height) {
+              state.isDragging = true;
+            state.dragStartX = x;
+            state.dragStartY = y;
+              state.dragStartLat = state.centerLat;
+              state.dragStartLon = state.centerLon;
+          }
       };
       
-      p._handleMapKeyPress = function() {
-          if (p.key === '+' || p.key === '=') {
-              state.zoom = Math.min(18, state.zoom + 1);
-              loadVisibleTiles();
-          }
-          if (p.key === '-' || p.key === '_') {
-              state.zoom = Math.max(2, state.zoom - 1);
+      p._handleMapMouseReleased = function() {
+          state.isDragging = false;
+      };
+      
+        p._handleMapMouseDragged = function(x = p.mouseX, y = p.mouseY) {
+          if (state.isDragging) {
+            // Convert pixel delta to lat/lon delta
+              let startLatLon = pixelToLatLon(state.dragStartX, state.dragStartY);
+            let endLatLon = pixelToLatLon(x, y);
+              
+              let deltaLat = startLatLon.lat - endLatLon.lat;
+              let deltaLon = startLatLon.lon - endLatLon.lon;
+              
+              state.centerLat = state.dragStartLat + deltaLat;
+              state.centerLon = state.dragStartLon + deltaLon;
+              
+              // Clamp latitude to valid range (-85 to 85 for web mercator)
+              state.centerLat = Math.max(-85, Math.min(85, state.centerLat));
+              
+              // Wrap longitude to keep it in -180 to 180 range
+              while (state.centerLon < -180) state.centerLon += 360;
+              while (state.centerLon > 180) state.centerLon -= 360;
+              
               loadVisibleTiles();
           }
       };
       
       p._handleMapWheel = function(event) {
           // Zoom in/out with mouse wheel
-          if (event.delta > 0) {
-              state.zoom = Math.max(2, state.zoom - 1);
-              loadVisibleTiles();
-          } else if (event.delta < 0) {
-              state.zoom = Math.min(18, state.zoom + 1);
-              loadVisibleTiles();
-          }
+              const delta = (event && (event.delta !== undefined ? event.delta : (event.deltaY !== undefined ? event.deltaY : 0))) || 0;
+              const prevZoom = state.zoom;
+              if (delta > 0) {
+                state.zoom = Math.max(2, state.zoom - 1);
+              } else if (delta < 0) {
+                state.zoom = Math.min(18, state.zoom + 1);
+              }
+              if (state.zoom !== prevZoom) {
+                // Clear tiles across zoom levels to avoid unbounded growth and stale tiles.
+                state.tiles = {};
+                loadVisibleTiles();
+              }
           // Prevent page scroll
           return false;
       };
+
+            // Prefer canvas-bound events 
+            const cnvElt = getCanvasElement();
+            if (cnvElt && (!p.chart._mapDomHandlersRegistered || p.chart._mapDomHandlersTarget !== cnvElt)) {
+              // If previously bound to a different canvas, unbind first
+              if (p.chart._mapDomHandlersRegistered && p.chart._mapDomHandlersTarget && p.chart._mapDomWheelListener) {
+                try {
+                  p.chart._mapDomHandlersTarget.removeEventListener('wheel', p.chart._mapDomWheelListener);
+                  p.chart._mapDomHandlersTarget.removeEventListener('mousedown', p.chart._mapDomMouseDownListener);
+                  window.removeEventListener('mousemove', p.chart._mapDomMouseMoveListener);
+                  window.removeEventListener('mouseup', p.chart._mapDomMouseUpListener);
+                } catch (e) {
+                  // ignore
+                }
+              }
+
+              p.chart._mapDomWheelListener = (e) => {
+                if (!p._handleMapWheel) return;
+                e.preventDefault();
+                p._handleMapWheel(e);
+              };
+
+              p.chart._mapDomMouseDownListener = (e) => {
+                if (!p._handleMapMousePressed) return;
+                const pt = getCanvasCoordsFromEvent(e);
+                p._handleMapMousePressed(pt.x, pt.y);
+              };
+
+              p.chart._mapDomMouseMoveListener = (e) => {
+                if (!p._handleMapMouseDragged) return;
+                if (!state.isDragging) return;
+                const pt = getCanvasCoordsFromEvent(e);
+                p._handleMapMouseDragged(pt.x, pt.y);
+              };
+
+              p.chart._mapDomMouseUpListener = () => {
+                if (p._handleMapMouseReleased) p._handleMapMouseReleased();
+              };
+
+              cnvElt.addEventListener('wheel', p.chart._mapDomWheelListener, { passive: false });
+              cnvElt.addEventListener('mousedown', p.chart._mapDomMouseDownListener);
+              window.addEventListener('mousemove', p.chart._mapDomMouseMoveListener);
+              window.addEventListener('mouseup', p.chart._mapDomMouseUpListener);
+
+              p.chart._mapDomHandlersRegistered = true;
+              p.chart._mapDomHandlersTarget = cnvElt;
+            }
       
       // Auto-register handlers if not already done
-      if (!p.chart._mapHandlersRegistered) {
-          const originalKeyPressed = p.keyPressed || (() => {});
-          p.keyPressed = function() {
-              originalKeyPressed.call(p);
-              if (p._handleMapKeyPress) p._handleMapKeyPress();
+            // Keep legacy p5 callback wrapping as a fallback only (for environments where canvas events can't bind).
+            if (!p.chart._mapHandlersRegistered && !p.chart._mapDomHandlersRegistered) {
+          const originalMousePressed = p.mousePressed || (() => {});
+          p.mousePressed = function() {
+              originalMousePressed.call(p);
+              if (p._handleMapMousePressed) p._handleMapMousePressed();
+          };
+          
+          const originalMouseReleased = p.mouseReleased || (() => {});
+          p.mouseReleased = function() {
+              originalMouseReleased.call(p);
+              if (p._handleMapMouseReleased) p._handleMapMouseReleased();
+          };
+          
+          const originalMouseDragged = p.mouseDragged || (() => {});
+          p.mouseDragged = function() {
+              originalMouseDragged.call(p);
+              if (p._handleMapMouseDragged) p._handleMapMouseDragged();
           };
           
           const originalMouseWheel = p.mouseWheel || (() => {});
@@ -2468,9 +2607,6 @@ p5.prototype.hist = function(data, options = {}) {
           
           p.chart._mapHandlersRegistered = true;
       }
-      
-      // Call navigation handler
-      if (p._handleMapKeys) p._handleMapKeys();
   };
 
   // ==========================================
