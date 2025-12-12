@@ -516,7 +516,7 @@ function getAutoLabelColor(bgColor) {
         );
       } else if (policy === 'warn') {
         console.warn(
-          `[p5.chart.${chartType}] ⚠️ Data Quality Warning: ${nanCount} of ${rows.length} rows contain NaN/null values.`,
+          `[p5.chart.${chartType}] Data Quality Warning: ${nanCount} of ${rows.length} rows contain NaN/null values.`,
           `\n  Affected columns: ${detailsStr}`,
           `\n  These values will be handled according to chart type behavior.`,
           `\n  To suppress this warning, set nanPolicy: 'silent' in chart options.`,
@@ -964,7 +964,7 @@ function getAutoLabelColor(bgColor) {
             p.noStroke();
             p.textAlign(p.CENTER, p.CENTER);
             p.textSize(16);
-            p.text('⚠️ Pie Chart Error: NaN Values Detected', p.width/2, p.height/2 - 40);
+            p.text('Pie Chart Error: NaN Values Detected', p.width/2, p.height/2 - 40);
             
             p.textSize(12);
             p.fill(100, 0, 0);
@@ -974,14 +974,14 @@ function getAutoLabelColor(bgColor) {
             p.pop();
             
             console.error(
-                `[p5.chart.pie] ❌ Cannot render pie chart: ${nanIndices.length} NaN values in column '${valCol}'.`,
+                `[p5.chart.pie] Cannot render pie chart: ${nanIndices.length} NaN values in column '${valCol}'.`,
                 `\n  Affected rows: ${nanIndices.join(', ')}`,
                 `\n  Set nanPolicy: 'warn' or 'silent' in options to filter out NaN values automatically.`
             );
             return; // Don't render the chart
         } else if (policy === 'warn') {
             console.warn(
-                `[p5.chart.pie] ⚠️ Data Quality Warning: ${nanIndices.length} of ${allValues.length} values are NaN/null.`,
+                `[p5.chart.pie] Data Quality Warning: ${nanIndices.length} of ${allValues.length} values are NaN/null.`,
                 `\n  Column: ${valCol}`,
                 `\n  Affected rows: ${nanIndices.join(', ')}`,
                 `\n  These values will be filtered out. Percentages based on ${allValues.length - nanIndices.length} valid values.`
@@ -1662,7 +1662,7 @@ p5.prototype.hist = function(data, options = {}) {
             );
         } else if (policy === 'warn') {
             console.warn(
-                `[p5.chart.hist] ⚠️ Data Quality Warning: ${filteredCount} of ${originalCount} values filtered out due to NaN/null.`,
+                `[p5.chart.hist] Data Quality Warning: ${filteredCount} of ${originalCount} values filtered out due to NaN/null.`,
                 `\n  Column: ${col}`,
                 `\n  Histogram will display ${vals.length} valid values.`,
                 `\n  To suppress this warning, set nanPolicy: 'silent' in chart options.`
