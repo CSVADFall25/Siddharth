@@ -1760,75 +1760,7 @@ p5.prototype.hist = function(data, options = {}) {
   };
 
   // ==========================================
-  // 9. CHOROPLETH (Maps)
-  // ==========================================
-  
-  p5.prototype.choropleth = function(data, options = {}) {
-      const p = this;
-      let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
-      const features = options.features; 
-      if (!features) throw new Error("Choropleth: options.features (GeoJSON) is required.");
-      
-      const keyCol = options.joinKey || 'id'; 
-      const propKey = options.featureKey || 'id'; 
-      const valCol = options.value || df.columns[1];
-      
-      const margin = options.margin || { top: 50, right: 20, bottom: 40, left: 20 };
-      const w = (options.width || p.width) - margin.left - margin.right;
-      const h = (options.height || p.height) - margin.top - margin.bottom;
-
-      p.push();
-      p.translate(margin.left, margin.top);
-      drawMeta(p, options, w, h);
-      
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      features.features.forEach(f => {
-          const coords = f.geometry.coordinates;
-          const type = f.geometry.type;
-          function check(ring) {
-              ring.forEach(pt => {
-                  if (pt[0] < minX) minX = pt[0]; if (pt[0] > maxX) maxX = pt[0];
-                  if (pt[1] < minY) minY = pt[1]; if (pt[1] > maxY) maxY = pt[1];
-              });
-          }
-          if (type === 'Polygon') coords.forEach(check);
-          else if (type === 'MultiPolygon') coords.forEach(poly => poly.forEach(check));
-      });
-      
-      const vals = df.col(valCol).map(Number).filter(v => !isNaN(v));
-      const minVal = (vals.length ? Math.min(...vals) : 0);
-      const maxVal = (vals.length ? Math.max(...vals) : 1);
-      
-      // Cache rows for performance
-      const rows = df.rows;
-
-      features.features.forEach(f => {
-          const id = f.properties[propKey];
-          const row = rows.find(r => r[keyCol] == id);
-          const val = row ? Number(row[valCol]) : null;
-          let c = p.color(240);
-          if (val !== null && !isNaN(val)) {
-              let norm = p.map(val, minVal, maxVal, 0, 1);
-              c = p.lerpColor(p.color("#E7F6F2"), p.color("#2C3333"), norm);
-          }
-          p.fill(c); p.stroke(255); p.strokeWeight(options.lineSize || 1);
-          const drawPoly = (ring) => {
-              p.beginShape();
-              ring.forEach(pt => {
-                  let px = p.map(pt[0], minX, maxX, 0, w);
-                  let py = p.map(pt[1], minY, maxY, h, 0); 
-                  p.vertex(px, py);
-              });
-              p.endShape(p.CLOSE);
-          };
-          if (f.geometry.type === 'Polygon') f.geometry.coordinates.forEach(drawPoly);
-          else if (f.geometry.type === 'MultiPolygon') f.geometry.coordinates.forEach(poly => poly.forEach(drawPoly));
-      });
-      p.pop();
-  };
-
-  // ==========================================
-  // 10. MAP (OpenStreetMap Integration)
+  // 9. MAP (OpenStreetMap Integration)
   // ==========================================
   
   p5.prototype.mapChart = function(data, options = {}) {
@@ -2091,36 +2023,5 @@ p5.prototype.hist = function(data, options = {}) {
       // Call navigation handler
       if (p._handleMapKeys) p._handleMapKeys();
   };
-
-  // ==========================================
-  // 11. DROPDOWN 
-  // ==========================================
-  
-  p5.prototype.createDropdown = function(options = {}) {
-      const p = this;
-      const id = options.id || 'chart_dropdown';
-      if (p.chart.inputs[id]) return p.chart.inputs[id];
-      
-      const sel = p.createSelect();
-      sel.position(options.x || 20, options.y || 20);
-      sel.style('font-family', 'sans-serif');
-      sel.style('padding', '5px');
-      
-      if (options.label) {
-          const lbl = p.createDiv(options.label);
-          lbl.position((options.x || 20), (options.y || 20) - 20);
-          lbl.style('font-size', '12px');
-          lbl.style('font-family', 'sans-serif');
-          p.chart.inputs[id + '_lbl'] = lbl;
-      }
-      
-      if (Array.isArray(options.options)) {
-        options.options.forEach(opt => sel.option(opt));
-      }
-      if (options.onChange) sel.changed(() => options.onChange(sel.value()));
-      
-      p.chart.inputs[id] = sel;
-      return sel;
-  };
-  
+    
 })();
