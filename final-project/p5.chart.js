@@ -1,3 +1,24 @@
+// ====== GLOBAL TOOLTIP COLUMNS & SUBTITLE OPTION ======
+// Set this to an array of objects: [{col: 'label', label: 'Label'}, {col: 'value', label: 'Value'}]
+p5.prototype.chart = p5.prototype.chart || {};
+p5.prototype.chart.defaultTooltipColumns = null;
+// Global subtitle for all charts (if not overridden per chart)
+p5.prototype.chart.defaultSubtitle = null;
+
+// Helper: Format value labels to avoid floating point artifacts (e.g., 0.30000000000001)
+function formatValueLabel(val, maxDecimals = 2) {
+  if (typeof val !== 'number') return String(val);
+  if (Math.abs(val) < 1e-6) return '0';
+  // Use EPSILON to avoid floating point artifacts
+  let rounded = Math.round((val + Number.EPSILON) * Math.pow(10, maxDecimals)) / Math.pow(10, maxDecimals);
+  // Show integers as integers
+  if (Math.abs(rounded - Math.round(rounded)) < 1e-9) return String(Math.round(rounded));
+  // Otherwise, show up to maxDecimals, but trim trailing zeros
+  let s = rounded.toFixed(maxDecimals);
+  s = s.replace(/\.0+$/, '');
+  s = s.replace(/(\.[0-9]*[1-9])0+$/, '$1');
+  return s;
+}
 // p5.chart.js
 // Modern Data Visualization Library for p5.js
 
@@ -2626,11 +2647,29 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         p.pop();
         
         let pct = Math.round((v/total)*100);
+        let content;
+        if (typeof options.tooltip === 'function') {
+          content = options.tooltip(labels[i], v, i, {percent: pct});
+          if (!Array.isArray(content)) content = [String(content)];
+        } else {
+          let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
+          if (Array.isArray(tooltipCols)) {
+            content = tooltipCols.map(tc => {
+              if (tc.col === 'label') return (tc.label || 'Label') + ': ' + labels[i];
+              if (tc.col === 'value') return (tc.label || 'Value') + ': ' + v;
+              if (tc.col === 'percent') return (tc.label || 'Percent') + ': ' + pct + '%';
+              return null;
+            }).filter(x => x !== null);
+            if (content.length === 0) content = [`${labels[i]}`, `${v} (${pct}%)`];
+          } else {
+            content = [`${labels[i]}`, `${v} (${pct}%)`];
+          }
+        }
         p.chart.hoverState = { 
           active: true, 
           x: p.mouseX, 
           y: p.mouseY, 
-          content: [`${labels[i]}`, `${v} (${pct}%)`],
+          content: content,
           tooltipScale: options && options.tooltipScale,
           tooltipTextSize: options && options.tooltipTextSize,
           tooltipFont: options && options.tooltipFont
@@ -2855,17 +2894,25 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const showVals = options.showValues !== undefined ? options.showValues : false; 
       const lblPos = options.labelPos || 'auto';
 
-      let allV = [];
-      yCols.forEach(c => allV.push(...df.col(c).map(v => Number(v)||0)));
-      if (allV.length === 0) return;
-      const minV = Math.min(0, ...allV), maxV = Math.max(0, ...allV);
-      
+
+      // Gather all X and Y values (for multi-series)
+      const xs = df.col(xCol).map(Number);
+      const rows = df.rows;
+      let allY = [];
+      yCols.forEach(c => allY.push(...df.col(c).map(v => Number(v))));
+      // Filter out NaN for axis bounds
+      const validXs = xs.filter(x => !isNaN(x));
+      const validYs = allY.filter(y => !isNaN(y));
+      if (validYs.length === 0) return;
+      // Axis bounds: default to include 0 unless negative values or user override
+      const minX = (options.minX !== undefined) ? options.minX : (validXs.length > 0 ? Math.min(0, ...validXs) : 0);
+      const maxX = (options.maxX !== undefined) ? options.maxX : (validXs.length > 0 ? Math.max(0, ...validXs) : 1);
+      const minY = (options.minY !== undefined) ? options.minY : (validYs.length > 0 ? Math.min(0, ...validYs) : 0);
+      const maxY = (options.maxY !== undefined) ? options.maxY : (validYs.length > 0 ? Math.max(0, ...validYs) : 1);
+
       if (options.xLabel === undefined) options.xLabel = xCol;
       if (options.yLabel === undefined) options.yLabel = yCols.join(', ');
-        if (options.title === undefined) options.title = yCols.join(' vs. ');
-
-      const xs = df.col(xCol);
-      const rows = df.rows;
+      if (options.title === undefined) options.title = yCols.join(' vs. ');
       
       p.push();
       p.translate(margin.left, margin.top);
@@ -2878,9 +2925,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
       p.line(0, h, w, h); // X
       p.line(0, 0, 0, h); // Y
-      
-      // Calculate nice Y-axis bounds
-      const yAxis = niceAxisBounds(minV, maxV);
+
+      // Calculate nice axis bounds
+      const yAxis = niceAxisBounds(minY, maxY);
       
       p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
           function formatTick(val) {
@@ -2905,35 +2952,35 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.stroke(TICK_COLOR);
       });
       
-      // X-Ticks (categorical - keep as is for now)
-      const tickInterval = Math.max(1, Math.floor(xs.length / 8));
-        for(let i = 0; i < xs.length; i += tickInterval) {
-          let xVal = p.map(i, 0, xs.length-1, 0, w);
-          p.stroke(TICK_COLOR); p.line(xVal, h, xVal, h + tickLen);
-          p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.CENTER, p.TOP);
-          p.text(formatTick(xs[i]), xVal, h + tickTextOffset);
-        }
+      // X-Ticks (numeric, match axis bounds)
+      const xAxis = niceAxisBounds(minX, maxX);
+      xAxis.ticks.forEach(tickVal => {
+        let xVal = p.map(tickVal, minX, maxX, 0, w);
+        p.stroke(TICK_COLOR); p.line(xVal, h, xVal, h + tickLen);
+        p.noStroke(); p.fill(SUBTEXT_COLOR); p.textSize(tickLabelSize); p.textAlign(p.CENTER, p.TOP);
+        p.text(formatTick(tickVal), xVal, h + tickTextOffset);
+      });
 
       // Draw Lines
       yCols.forEach((col, i) => {
-          let c = getColor(p, i, options.palette);
-          p.stroke(c); p.strokeWeight(lnSz); p.noFill();
-          p.beginShape();
-          xs.forEach((xVal, j) => {
-              let val = rows[j][col];
-              // Check for NaN/null/empty - create break in line
-              if (val === null || val === '' || val === undefined || 
-                  (typeof val === 'number' && isNaN(val)) ||
-                  (typeof val === 'string' && isNaN(Number(val)))) {
-                  p.endShape(); // End current line segment
-                  p.beginShape(); // Start new segment after gap
-                  return;
-              }
-              let px = p.map(j, 0, xs.length-1, 0, w);
-              let py = p.map(Number(val), yAxis.min, yAxis.max, h, 0);
-              p.vertex(px, py);
-          });
-          p.endShape();
+        let c = getColor(p, i, options.palette);
+        p.stroke(c); p.strokeWeight(lnSz); p.noFill();
+        p.beginShape();
+        xs.forEach((xVal, j) => {
+          let val = rows[j][col];
+          // Check for NaN/null/empty - create break in line
+          if (val === null || val === '' || val === undefined || 
+              (typeof val === 'number' && isNaN(val)) ||
+              (typeof val === 'string' && isNaN(Number(val)))) {
+            p.endShape(); // End current line segment
+            p.beginShape(); // Start new segment after gap
+            return;
+          }
+          let px = p.map(xs[j], minX, maxX, 0, w);
+          let py = p.map(Number(val), yAxis.min, yAxis.max, h, 0);
+          p.vertex(px, py);
+        });
+        p.endShape();
       });
 
       // Draw Points & Labels
@@ -2941,13 +2988,13 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           yCols.forEach((col, i) => {
               let c = getColor(p, i, options.palette);
               
-              xs.forEach((xVal, j) => {
+                xs.forEach((xVal, j) => {
                   let val = Number(rows[j][col]);
                   if (isNaN(val)) return;
-                  
-                  let px = p.map(j, 0, xs.length-1, 0, w);
+                  let r = rows[j]; // <-- Fix: get the correct row object
+                  // Use axis-mapped x (not index)
+                  let px = p.map(xs[j], minX, maxX, 0, w);
                   let py = p.map(val, yAxis.min, yAxis.max, h, 0);
-                  
                   let d = p.dist(p.mouseX-margin.left, p.mouseY-margin.top, px, py);
                   let isHover = d < (ptSz + 4);
                   let isClicked = isHover && p.mouseIsPressed;
@@ -2968,15 +3015,35 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                       
                       // Only show tooltip if NOT showing static labels
                       if (showVals !== true) {
-                           p.chart.hoverState = {
-                             active: true,
-                             x: p.mouseX,
-                             y: p.mouseY,
-                             content: [`${col}`, `${val}`],
-                             tooltipScale: options && options.tooltipScale,
-                             tooltipTextSize: options && options.tooltipTextSize,
-                             tooltipFont: options && options.tooltipFont
-                           };
+                        let content;
+                        if (typeof options.tooltip === 'function') {
+                          content = options.tooltip(col, val, i, {row: r, col: col});
+                          if (!Array.isArray(content)) content = [String(content)];
+                        } else {
+                          // Check for per-chart or global tooltip columns
+                          let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
+                          if (Array.isArray(tooltipCols) && r) {
+                            content = tooltipCols.map(tc => {
+                              let v = r[tc.col];
+                              let label = tc.label || tc.col;
+                              return (v !== undefined) ? `${label}: ${v}` : null;
+                            }).filter(x => x !== null);
+                            if (content.length === 0) content = [`${col}`, `${val}`];
+                          } else if (options.seriesTooltipColumn && r && r[options.seriesTooltipColumn] !== undefined) {
+                            content = [String(r[options.seriesTooltipColumn])];
+                          } else {
+                            content = [`${col}`, `${val}`];
+                          }
+                        }
+                        p.chart.hoverState = {
+                          active: true,
+                          x: p.mouseX,
+                          y: p.mouseY,
+                          content: content,
+                          tooltipScale: options && options.tooltipScale,
+                          tooltipTextSize: options && options.tooltipTextSize,
+                          tooltipFont: options && options.tooltipFont
+                        };
                       }
                   } 
                   if (!isHover || isHollow) p.circle(px, py, ptSz);
@@ -3276,6 +3343,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           let isClicked = isHover && p.mouseIsPressed;
 
           // Style Setup
+
             p.strokeWeight(isHollow ? pointStrokeW : 0);
             if (isHollow) {
               p.stroke(ptColor);
@@ -3284,36 +3352,51 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             } else {
               p.noStroke(); 
               p.fill(ptColor);
-          }
+            }
 
-          // Hover State
-          if (isHover) {
+            // Hover State
+            if (isHover) {
                p.cursor(p.HAND);
-            if(isHollow) p.strokeWeight(pointHoverStrokeW);
+               if(isHollow) p.strokeWeight(pointHoverStrokeW);
                else { 
-                   let hc = p.color(ptColor); 
-                   hc.setAlpha(HOVER_ALPHA); 
-                   p.fill(hc); 
-                   p.circle(cx, cy, r * POINT_HOVER_SCALE); // Bloom effect
+                 let hc = p.color(ptColor); 
+                 hc.setAlpha(HOVER_ALPHA); 
+                 p.fill(hc); 
+                 p.circle(cx, cy, r * POINT_HOVER_SCALE); // Bloom effect
                }
-               
                // Tooltip (only if values not static)
                if (showVals !== true) {
-                   let content = [`X: ${xs[i]}`, `Y: ${ys[i]}`];
-                   if (sizeCol) content.push(`${sizeCol}: ${sizes[i]}`);
-                   if (colorCol) content.push(`${colorCol}: ${rows[i][colorCol]}`);
-                   
-                   p.chart.hoverState = { 
-                     active: true,
-                     x: p.mouseX,
-                     y: p.mouseY,
-                     content: content,
-                     tooltipScale: options && options.tooltipScale,
-                     tooltipTextSize: options && options.tooltipTextSize,
-                     tooltipFont: options && options.tooltipFont
-                   };
+                 let content;
+                 if (typeof options.tooltip === 'function') {
+                   content = options.tooltip(rows[i], i, {x: xs[i], y: ys[i], size: sizes[i], color: rows[i][colorCol]});
+                   if (!Array.isArray(content)) content = [String(content)];
+                 } else {
+                   // Check for per-chart or global tooltip columns
+                   let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
+                   if (Array.isArray(tooltipCols) && rows[i]) {
+                     content = tooltipCols.map(tc => {
+                       let v = rows[i][tc.col];
+                       let label = tc.label || tc.col;
+                       return (v !== undefined) ? `${label}: ${v}` : null;
+                     }).filter(x => x !== null);
+                     if (content.length === 0) content = [`X: ${xs[i]}`, `Y: ${ys[i]}`];
+                   } else {
+                     content = [`X: ${xs[i]}`, `Y: ${ys[i]}`];
+                     if (sizeCol) content.push(`${sizeCol}: ${sizes[i]}`);
+                     if (colorCol) content.push(`${colorCol}: ${rows[i][colorCol]}`);
+                   }
+                 }
+                 p.chart.hoverState = { 
+                   active: true,
+                   x: p.mouseX,
+                   y: p.mouseY,
+                   content: content,
+                   tooltipScale: options && options.tooltipScale,
+                   tooltipTextSize: options && options.tooltipTextSize,
+                   tooltipFont: options && options.tooltipFont
+                 };
                }
-          } 
+            }
           
           if (!isHover || isHollow) p.circle(cx, cy, r);
 
@@ -3602,14 +3685,30 @@ p5.prototype.hist = function(data, options = {}) {
         let isHover = false;
         if (p.mouseX >= gx && p.mouseX <= gx + barW && p.mouseY >= gy && p.mouseY <= gy + rectH) {
             isHover = true;
+            let content;
+            if (typeof options.tooltip === 'function') {
+              content = options.tooltip(binStart, binEnd, count, i, {bin: i, value: count, binStart, binEnd});
+              if (!Array.isArray(content)) content = [String(content)];
+            } else {
+              // Check for per-chart or global tooltip columns
+              let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
+              if (Array.isArray(tooltipCols)) {
+                content = tooltipCols.map(tc => {
+                  if (tc.col === 'bin' || tc.col === 'binStart') return (tc.label || 'Bin') + ': ' + formatValueLabel(binStart);
+                  if (tc.col === 'binEnd') return (tc.label || 'Bin End') + ': ' + formatValueLabel(binEnd);
+                  if (tc.col === 'count' || tc.col === 'value') return (tc.label || 'Count') + ': ' + count;
+                  return null;
+                }).filter(x => x !== null);
+                if (content.length === 0) content = [`Bin: ${formatValueLabel(binStart)} - ${formatValueLabel(binEnd)}`, `Count: ${count}`];
+              } else {
+                content = [`Bin: ${formatValueLabel(binStart)} - ${formatValueLabel(binEnd)}`, `Count: ${count}`];
+              }
+            }
             p.chart.hoverState = {
               active: true,
               x: p.mouseX,
               y: p.mouseY,
-              content: [
-                `Range: ${binStart}—${binEnd}`,
-                `Count: ${count}`
-              ],
+              content: content,
               tooltipScale: options && options.tooltipScale,
               tooltipTextSize: options && options.tooltipTextSize,
               tooltipFont: options && options.tooltipFont
@@ -3630,14 +3729,26 @@ p5.prototype.hist = function(data, options = {}) {
         
         p.rect(rectX, rectY, barW, rectH);
 
-        // Value Labels (Above Bar)
+        // Value Labels (Inside Top of Bar by Default)
         if (showLabels) {
-            p.noStroke(); 
-            p.fill(TEXT_COLOR); 
-            p.textAlign(p.CENTER, p.BOTTOM); 
+          p.noStroke();
           p.textSize(histLabelSize);
-            
-            p.text(count, rectX + barW / 2, rectY - 2); 
+          let label = formatValueLabel(count);
+          // Draw inside the bar, near the top, with contrast
+          let labelY = rectY + 4 + histLabelSize; // 4px padding from top inside
+          // If bar is too short, draw above bar (fallback)
+          if (rectH < histLabelSize + 8) {
+            labelY = rectY - 2;
+            p.fill(TEXT_COLOR);
+            p.textAlign(p.CENTER, p.BOTTOM);
+          } else {
+            // Use contrasting color for inside
+            p.fill(textColorContrast);
+            p.textAlign(p.CENTER, p.TOP);
+          }
+          // Ensure label never overlaps subtitle/legend (if at top of plot)
+          if (labelY < -margin.top + 18) labelY = -margin.top + 18;
+          p.text(label, rectX + barW / 2, labelY);
         }
     });
 
@@ -3886,21 +3997,19 @@ p5.prototype.hist = function(data, options = {}) {
       const hoverColor = options.hoverColor || p.color(TABLE_HOVER_COLOR);
       const borderColor = options.borderColor || p.color(TABLE_BORDER_COLOR);
       
-      // Draw title (without page count)
-      const title = options.title || 'Data Table';
-      p.push();
-      p.translate(x, y - scalePx(p, options, 30, 18, 40));
-      p.fill(TEXT_COLOR); 
-      p.textSize(titleSize);
-      p.textStyle(p.BOLD);
-      p.textAlign(p.LEFT, p.BOTTOM); 
-      p.textFont(DEFAULT_FONT);
-      p.text(title, 0, 0);
-      p.pop();
-      
-      // Draw table
+      // Draw title/subtitle using shared meta renderer so tables support:
+      // - subtitleWrap/titleWrap
+      // - subtitleSize/titleSize
+      // - subtitleBold
+      // - global default subtitle
+      const metaOpts = Object.assign({}, options);
+      if (metaOpts.title === undefined) metaOpts.title = 'Data Table';
+      if (metaOpts.subtitle === undefined) metaOpts.subtitle = p5.prototype.chart.defaultSubtitle;
+
+      // Draw table (+ meta above the table)
       p.push();
       p.translate(x, y);
+      drawMeta(p, metaOpts, w, (dispRows.length + 1) * rowH);
         // Draw header row
         p.fill(headerColor); p.noStroke(); p.rect(0, 0, w, rowH);
         p.fill(0); p.textAlign(p.LEFT, p.CENTER); p.textStyle(p.NORMAL); p.textFont(DEFAULT_FONT);
@@ -3971,14 +4080,31 @@ p5.prototype.hist = function(data, options = {}) {
                            (typeof cellValue === 'number' && Number.isNaN(cellValue));
               const showNaNIndicator = options.nanIndicator !== false;
               
-              // Show tooltip only if user provided a tooltip message
-              if (tooltipMsg && hoveredCell && hoveredCell.row === i + 1 && hoveredCell.col === j) {
+              // Show tooltip on hover
+              if (hoveredCell && hoveredCell.row === i + 1 && hoveredCell.col === j) {
+                  let content;
+                  if (typeof options.tooltip === 'function') {
+                    content = options.tooltip(r[c], r, c, {row: i, col: j});
+                    if (!Array.isArray(content)) content = [String(content)];
+                  } else {
+                    let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
+                    if (Array.isArray(tooltipCols)) {
+                      content = tooltipCols.map(tc => {
+                        let v = r[tc.col];
+                        let label = tc.label || tc.col;
+                        return (v !== undefined) ? `${label}: ${v}` : null;
+                      }).filter(x => x !== null);
+                      if (content.length === 0) content = [`${c}: ${r[c]}`];
+                    } else {
+                      content = [`${c}: ${r[c]}`];
+                    }
+                  }
+                  const tooltipMsg = content.join('\n');
                   p.push();
                   const tooltipW = p.textWidth(tooltipMsg) + 20;
                   const tooltipH = 25;
                   const tooltipX = j*colW + colW/2 - tooltipW/2;
                   const tooltipY = ry - tooltipH - 5;
-                  
                   // Draw tooltip box
                   p.fill(50, 50, 50, 230);
                   p.noStroke();
@@ -4358,34 +4484,51 @@ p5.prototype.hist = function(data, options = {}) {
           p.cursor(p.HAND);
           let h = state.hoveredPoint;
           let lines = [];
-          
-          if (h.row[labelCol]) lines.push(String(h.row[labelCol]));
-          if (h.row[valueCol]) lines.push(`${valueCol}: ${Number(h.row[valueCol]).toLocaleString()}`);
-          lines.push(`Lat: ${Number(h.row[latCol]).toFixed(4)}, Lon: ${Number(h.row[lonCol]).toFixed(4)}`);
+          let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
+          if (Array.isArray(tooltipCols)) {
+            lines = tooltipCols.map(tc => {
+              let v = h.row[tc.col];
+              let label = tc.label || tc.col;
+              if (v !== undefined) return `${label}: ${v}`;
+              // Special support for lat/lon
+              if (tc.col === latCol) return `${label}: ${Number(h.row[latCol]).toFixed(4)}`;
+              if (tc.col === lonCol) return `${label}: ${Number(h.row[lonCol]).toFixed(4)}`;
+              return null;
+            }).filter(x => x !== null);
+            if (lines.length === 0) {
+              if (h.row[labelCol]) lines.push(String(h.row[labelCol]));
+              if (h.row[valueCol]) lines.push(`${valueCol}: ${Number(h.row[valueCol]).toLocaleString()}`);
+              lines.push(`Lat: ${Number(h.row[latCol]).toFixed(4)}, Lon: ${Number(h.row[lonCol]).toFixed(4)}`);
+            }
+          } else {
+            if (h.row[labelCol]) lines.push(String(h.row[labelCol]));
+            if (h.row[valueCol]) lines.push(`${valueCol}: ${Number(h.row[valueCol]).toLocaleString()}`);
+            lines.push(`Lat: ${Number(h.row[latCol]).toFixed(4)}, Lon: ${Number(h.row[lonCol]).toFixed(4)}`);
+          }
 
-            const tipTextSize = scalePx(p, options, TOOLTIP_TEXT_SIZE, 10, 14);
-            const tipPad = scalePx(p, options, TOOLTIP_PADDING, 6, 14);
-            const tipLineH = scalePx(p, options, TOOLTIP_LINE_HEIGHT, 12, 22);
-            const tipOffset = scalePx(p, options, TOOLTIP_OFFSET, 10, 18);
-            const tipRadius = scalePx(p, options, TOOLTIP_BORDER_RADIUS, 3, 6);
+          const tipTextSize = scalePx(p, options, TOOLTIP_TEXT_SIZE, 10, 14);
+          const tipPad = scalePx(p, options, TOOLTIP_PADDING, 6, 14);
+          const tipLineH = scalePx(p, options, TOOLTIP_LINE_HEIGHT, 12, 22);
+          const tipOffset = scalePx(p, options, TOOLTIP_OFFSET, 10, 18);
+          const tipRadius = scalePx(p, options, TOOLTIP_BORDER_RADIUS, 3, 6);
 
-            p.textSize(tipTextSize);
+          p.textSize(tipTextSize);
           let maxWidth = 0;
           lines.forEach(l => { maxWidth = Math.max(maxWidth, p.textWidth(l)); });
-            let boxW = maxWidth + (tipPad * 2);
-            let boxH = lines.length * tipLineH + tipPad;
-          
-            let tx = p.mouseX + tipOffset;
-            let ty = p.mouseY + tipOffset;
-            if (tx + boxW > p.width) tx = p.mouseX - boxW - tipOffset;
-            if (ty + boxH > p.height) ty = p.mouseY - boxH - tipOffset;
-          
+          let boxW = maxWidth + (tipPad * 2);
+          let boxH = lines.length * tipLineH + tipPad;
+
+          let tx = p.mouseX + tipOffset;
+          let ty = p.mouseY + tipOffset;
+          if (tx + boxW > p.width) tx = p.mouseX - boxW - tipOffset;
+          if (ty + boxH > p.height) ty = p.mouseY - boxH - tipOffset;
+
           p.noStroke();
           p.fill(0, 0, 0, 220);
-            p.rect(tx, ty, boxW, boxH, tipRadius);
+          p.rect(tx, ty, boxW, boxH, tipRadius);
           p.fill(255);
           p.textAlign(p.LEFT, p.TOP);
-            lines.forEach((l, i) => p.text(l, tx + tipPad, ty + scalePx(p, options, 8, 6, 10) + i * tipLineH));
+          lines.forEach((l, i) => p.text(l, tx + tipPad, ty + scalePx(p, options, 8, 6, 10) + i * tipLineH));
       } else {
           p.cursor(p.ARROW);
       }
