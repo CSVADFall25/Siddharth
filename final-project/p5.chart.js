@@ -14,7 +14,16 @@ Table of Contents:
   8. TABLE
   9. GEO MAP (OpenStreetMap Integration)
   10. EXPORT UTIITIES
-   ========================================= */ 
+   ========================================= */
+   
+/* AI USAGE STATEMENT:
+I consulted Copilot to help me scale the code that I would write across the library,
+especially since many aspects of the code are similar but applied differently and I would create
+new features within each chart as I develoepd them, but they would need to be added to the overall framework. 
+I verified and tested all code to ensure correctness and functionality. 
+I also used Copilot to help with utility functions, fix bugs and syntax errors, and to assist me with
+hit testing and interactivity errors that arose while creating the library.
+*/  
 
 /* 0. GLOBALS & CONFIG - OVERALL AESTHETICS */ 
 
