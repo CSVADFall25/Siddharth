@@ -11,6 +11,7 @@
 `examples`: Folder containing examples for each of the charts
 
     - `base`: Basic chart examples relying almost entirely on the library
+    
     - `slightly_more_advanced`: More complex examples, including versions that are integrated with the greater p5.js ecosystem
 
 `libraries`: p5.js is located here
