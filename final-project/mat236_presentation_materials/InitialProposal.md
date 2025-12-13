@@ -2,11 +2,11 @@
 
 I plan to build `p5.chart`, an interactive data visualization and manipulation add-on library for p5.js. The library will include three main components:
 
-- DataFrames for data analysis: Filtering, grouping, vectorized operations, Boolean indexing, statistical methods, etc.
+- DataFrames for data analysis: Filtering, grouping, function applications, statistical methods, etc.
   
 - Graphs: Interactive chart constructors for line plots, bar plots, scatter plots, histograms, pie charts, etc.
   
-- Maps: Data-driven choropleths and point maps 
+- Maps: Data-driven point maps 
 Key technical considerations
 
 I will implement a DataFrame class on top of plain JavaScript arrays/objects with import helpers from p5.Table, CSV, and JSON I will build interactive graph templates with p5.js and create maps using p5.js and GeoJSON. 
