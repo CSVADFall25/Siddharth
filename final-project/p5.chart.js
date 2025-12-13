@@ -1,27 +1,39 @@
-// ====== GLOBAL TOOLTIP COLUMNS & SUBTITLE OPTION ======
-// Set this to an array of objects: [{col: 'label', label: 'Label'}, {col: 'value', label: 'Value'}]
+/* =========================================
+P5.CHART.JS: Interactive Charting Library for p5.js
+By: Siddharth Chattoraj
+
+Table of Contents:
+  0. GLOBALS & CONFIG - OVERALL AESTHETICS
+  1. DATAFRAME AND LOADING
+  2. UTILS
+  3. BAR CHART
+  4. PIE CHART (Donut embedded)
+  5. SERIES CHART (Line plot)
+  6. SCATTER PLOT
+  7. HISTOGRAM
+  8. TABLE
+  9. GEO MAP (OpenStreetMap Integration)
+  10. EXPORT UTIITIES
+   ========================================= */ 
+
+/* 0. GLOBALS & CONFIG - OVERALL AESTHETICS */ 
+
+// Tooltips and Subtitles
 p5.prototype.chart = p5.prototype.chart || {};
 p5.prototype.chart.defaultTooltipColumns = null;
-// Global subtitle for all charts (if not overridden per chart)
 p5.prototype.chart.defaultSubtitle = null;
 
-// Helper: Format value labels to avoid floating point artifacts (e.g., 0.30000000000001)
+// Helper: Format value labels to avoid floating point artifacts
 function formatValueLabel(val, maxDecimals = 2) {
   if (typeof val !== 'number') return String(val);
   if (Math.abs(val) < 1e-6) return '0';
-  // Use EPSILON to avoid floating point artifacts
   let rounded = Math.round((val + Number.EPSILON) * Math.pow(10, maxDecimals)) / Math.pow(10, maxDecimals);
-  // Show integers as integers
   if (Math.abs(rounded - Math.round(rounded)) < 1e-9) return String(Math.round(rounded));
-  // Otherwise, show up to maxDecimals, but trim trailing zeros
   let s = rounded.toFixed(maxDecimals);
   s = s.replace(/\.0+$/, '');
   s = s.replace(/(\.[0-9]*[1-9])0+$/, '$1');
   return s;
 }
-// p5.chart.js
-// Modern Data Visualization Library for p5.js
-
 
 // Helper: Get luminance of a hex color
 function getLuminance(hex) {
@@ -29,11 +41,10 @@ function getLuminance(hex) {
   if (hex.length === 3) {
     hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
   }
-  // Support 8-digit hex (#RRGGBBAA) by ignoring alpha.
   if (hex.length === 8) {
     hex = hex.substring(0, 6);
   }
-  if (hex.length !== 6) return 1; // fallback: treat as light
+  if (hex.length !== 6) return 1; 
   const r = parseInt(hex.substring(0,2), 16) / 255;
   const g = parseInt(hex.substring(2,4), 16) / 255;
   const b = parseInt(hex.substring(4,6), 16) / 255;
@@ -42,14 +53,12 @@ function getLuminance(hex) {
 
 // Helper: Choose label color based on background
 function getAutoLabelColor(bgColor) {
-  // Numbers are treated as grayscale (0..255)
   if (typeof bgColor === 'number') {
     const v = Math.max(0, Math.min(255, bgColor));
     const lum = v / 255;
     return lum > 0.6 ? '#111' : '#fff';
   }
 
-  // p5.Color (and similar) often expose .levels = [r,g,b,a]
   if (bgColor && typeof bgColor === 'object') {
     const levels = bgColor.levels;
     if (Array.isArray(levels) && levels.length >= 3) {
@@ -72,7 +81,7 @@ function getAutoLabelColor(bgColor) {
   return lum > 0.6 ? '#111' : '#fff';
 }
 
-// Helper: Treat common CSS "transparent" values as a transparent background option.
+// Helper: Transparent background option.
 function isTransparentBackground(bg) {
   if (bg === null) return true;
   if (typeof bg !== 'string') return false;
@@ -81,17 +90,11 @@ function isTransparentBackground(bg) {
 }
 
 (function() {
-
-  // ==========================================
-  // 0. GLOBALS & CONFIG - OVERALL AESTHETICS
-  // ==========================================
   
   p5.prototype.chart = p5.prototype.chart || {};
   
-  // ====== COLOR PALETTE ======
-  // Default color palette for all charts
-  p5.prototype.chart.palette = [
-    // Warm pastels    
+  // Default color palette for all charts: Warm Pastels
+  p5.prototype.chart.palette = [  
     "#D4A373", // sand
     "#E76F51", // coral
     "#F4A261", // apricot
@@ -102,7 +105,7 @@ function isTransparentBackground(bg) {
     "#F7B267"  // peach
   ];
   
-  // ====== TYPOGRAPHY ======
+  // Typography
   const DEFAULT_FONT = '"Roboto", "Helvetica Neue", "Helvetica", "Arial", sans-serif';
   const TEXT_COLOR = "#333333";
   const SUBTEXT_COLOR = "#666666";
@@ -113,18 +116,18 @@ function isTransparentBackground(bg) {
   const DATA_LABEL_SIZE = 11;
   const SOURCE_AUTHOR_SIZE = 7;
   
-  // ====== CHART MARGINS ======
+  // Margins
   const DEFAULT_MARGIN = { top: 60, right: 40, bottom: 60, left: 80 };
   
-  // ====== AXES & GRIDLINES ======
-  const AXIS_COLOR = "#333333"; // default: dark gray ("light black")
+  // Lines
+  const AXIS_COLOR = "#333333"; 
   const AXIS_WEIGHT = 2;
-  const TICK_COLOR = "#333333"; // default: dark gray ("light black")
+  const TICK_COLOR = "#333333"; 
   const TICK_WEIGHT = 1;
   const TICK_LENGTH = 5;
   const NUM_TICKS = 5;
   
-  // ====== POINTS (Scatter & Series) ======
+  // Points
   const DEFAULT_POINT_SIZE = 6;
   const DEFAULT_POINT_SIZE_SCATTER = 8;
   const MIN_POINT_SIZE = 5;
@@ -133,27 +136,27 @@ function isTransparentBackground(bg) {
   const POINT_STROKE_WEIGHT = 2;
   const POINT_HOVER_STROKE_WEIGHT = 3;
   
-  // ====== LINES ======
+  // Lines
   const DEFAULT_LINE_SIZE = 2;
   
-  // ====== BARS ======
-  const BAR_GAP_RATIO = 0.8; // 0.8 = 20% gap, 80% bar
-  const BAR_LABEL_POS = 'auto'; // 'auto', 'inside', 'outside', 'bottom', 'none'
+  // Bars
+  const BAR_GAP_RATIO = 0.8; 
+  const BAR_LABEL_POS = 'auto'; 
   const BAR_LABEL_SIZE = 10;
   
-  // ====== PIE/DONUT ======
+  // Pie/Donut
   const PIE_LABEL_SIZE = 11;
   const PIE_STROKE_WEIGHT = 2;
   const PIE_STROKE_COLOR = "#FFFFFF";
   const PIE_HOVER_SCALE = 1.05;
   const DONUT_HOLE_RADIUS = 0.6;
   
-  // ====== HISTOGRAM ======
+  // Histogram
   const HIST_DEFAULT_BINS = 10;
   const HIST_BORDER_WEIGHT = 1;
   const HIST_LABEL_SIZE = 10;
   
-  // ====== TABLE ======
+  // Table
   const TABLE_ROW_HEIGHT = 30;
   const TABLE_MAX_ROWS = 10;
   const TABLE_HEADER_COLOR = "#F0F0F0"; 
@@ -165,7 +168,7 @@ function isTransparentBackground(bg) {
   const TABLE_SEARCH_WIDTH = 150;
   const TABLE_ARROW_SIZE = 24;
   
-  // ====== GEO ======
+  // Geo
   const GEO_DEFAULT_ZOOM = 4;
   const GEO_POINT_SIZE = 12;
   const GEO_POINT_COLOR = "#D62728"; 
@@ -173,7 +176,7 @@ function isTransparentBackground(bg) {
   const GEO_LABEL_SIZE = 11;
   const GEO_PAN_AMOUNT = 0.5;
   
-  // ====== TOOLTIPS ======
+  // Tooltips
   const TOOLTIP_BG_COLOR = "rgba(0, 0, 0, 0.86)"; 
   const TOOLTIP_TEXT_COLOR = "#FFFFFF";
   const TOOLTIP_TEXT_SIZE = 12;
@@ -182,22 +185,21 @@ function isTransparentBackground(bg) {
   const TOOLTIP_BORDER_RADIUS = 4;
   const TOOLTIP_OFFSET = 15;
   
-  // ====== BACKGROUNDS ======
+  // Backgrounds
   const DEFAULT_BG_COLOR = "#FFFFFF";
   
-  // ====== HOVER EFFECTS ======
+  // Hover
   const HOVER_ALPHA = 200; // Alpha for hover state (out of 255)
   const HOVER_CURSOR = 'HAND';
   
-  // ====== LABEL POSITIONING ======
+  // Labels
   const LABEL_OFFSET = 10;
   const LABEL_PADDING = 5;
   
-  // ====== TRUNCATION ======
+  // Truncation
   const TRUNCATE_SUFFIX = "...";
   
-  // ====== NaN HANDLING POLICY ======
-  // Global policy for handling NaN/null values across all chart types
+  // NaN Handling
   // 'warn' (default): Logs warnings and handles gracefully with visual indicators
   // 'silent': Silently filters/skips NaN values without warnings
   // 'strict': Throws errors when NaN values are detected
@@ -207,7 +209,7 @@ function isTransparentBackground(bg) {
     STRICT: 'strict'
   };
   
-  // Default NaN policy (can be overridden per chart)
+ 
   p5.prototype.chart.nanPolicy = NAN_POLICY.WARN;
   
   // Chart-Specific Behavior:
@@ -219,18 +221,14 @@ function isTransparentBackground(bg) {
   //   Pie        - STRICT:  Shows error message (defaults to strict mode)
   //   Table      - DISPLAY: Shows "—" with gray styling
   
-  p5.prototype.chart.inputs = {}; // Cache for DOM elements
+  p5.prototype.chart.inputs = {}; 
 
-  // If true (default), charts will attempt to avoid CSS-squished canvases by resizing
-  // the p5 canvas to match its displayed (CSS) size when needed.
-  // Opt out globally by setting: p5.prototype.chart.autoFitCanvas = false;
-  // Or per-chart via options.autoFitCanvas = false.
+  // Auto-fit canvas
   if (p5.prototype.chart.autoFitCanvas === undefined) {
     p5.prototype.chart.autoFitCanvas = true;
   }
 
-  // Inject a safe default CSS rule so p5 canvases don’t overflow on small/mobile screens.
-  // This makes fixed-size sketches behave responsively without requiring sketch changes.
+  // Mobile sizing 
   (function ensureResponsiveCanvasCSS() {
     try {
       const styleId = 'p5chart-responsive-canvas';
@@ -247,9 +245,8 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     }
   })();
 
-  // ==========================================
-  // 1. DATAFRAME & LOADING 
-  // ==========================================
+
+/* 1. DATAFRAME AND LOADING */
 
   p5.prototype.chart.DataFrame = class DataFrame {
     constructor(data, columns) {
@@ -276,11 +273,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     get rows() { return this._rows.map(r => ({ ...r })); }
     col(name) { return this._rows.map(r => r[name]); }
     filter(colNameOrFn, operator, value) {
-        // If only one argument and it's a function, use the old way
         if (typeof colNameOrFn === 'function') {
             return new p5.prototype.chart.DataFrame(this._rows.filter(colNameOrFn), this._columns);
         }
-        // Otherwise, use simplified syntax: filter('Age', '>', 5)
         const filtered = this._rows.filter(row => {
             const colVal = row[colNameOrFn];
             if (operator === '>') return colVal > value;
@@ -293,7 +288,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         });
         return new p5.prototype.chart.DataFrame(filtered, this._columns);
     }
-    // Transform a column by applying a function to each value
+    // Transform a column 
     transform(colName, fn) {
         this._rows.forEach(row => {
             if (row[colName] !== undefined) {
@@ -304,8 +299,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     }
 
     // Add (or overwrite) a column.
-    // - If valueOrFn is a function: (row, index) => any
-    // - Otherwise: constant value assigned to every row
     addColumn(colName, valueOrFn) {
       if (!colName) throw new Error('addColumn: colName is required');
       const isFn = typeof valueOrFn === 'function';
@@ -347,10 +340,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         return this.select(keepCols);
     }
     // Group by one or more columns.
-    // Backwards compatible:
-    //   df.group('City', (rows) => ({ avg: ... }))
-    // Extended:
-    //   df.group(['Region','Category'], { Sales: 'sum', Quantity: 'mean' })
     group(groupCols, agg) {
       const keys = Array.isArray(groupCols) ? groupCols : [groupCols];
       if (!keys || keys.length === 0 || !keys[0]) {
@@ -373,7 +362,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
       const result = [];
 
-      // 1) Function aggregator (original behavior)
+      // Function aggregator
       if (typeof agg === 'function') {
         for (const [, g] of groups) {
           const aggregated = agg(g.rows);
@@ -382,7 +371,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         return new p5.prototype.chart.DataFrame(result);
       }
 
-      // 2) Aggregation map (new behavior)
+      // Aggregation mapping
       if (!agg || typeof agg !== 'object') {
         throw new Error('group: agg must be a function or an aggregation object');
       }
@@ -427,7 +416,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const resultColumns = [...keys, ...aggEntries.map(([c]) => c)];
       return new p5.prototype.chart.DataFrame(result, resultColumns);
     }
-    // Pivot table: create a cross-tabulation
+    // Pivot table
     pivot(indexCol, columnCol, valueCol, aggFunc = 'sum') {
         const pivotData = {};
         const columnValues = new Set();
@@ -468,7 +457,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         
         return new p5.prototype.chart.DataFrame(result);
     }
-    // Sort by column in ascending or descending order
+    // Sort by column
     sort(colName, order = 'ascending') {
         const sortedRows = [...this._rows].sort((a, b) => {
             const valA = a[colName];
@@ -504,7 +493,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         return new p5.prototype.chart.DataFrame(this._rows.slice(Math.max(0, this._rows.length - count)), this._columns);
       }
 
-      // Get unique values from a column (preserves first-seen order)
+      // Get unique values from a column
       unique(colName) {
         const seen = new Set();
         const out = [];
@@ -518,12 +507,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         return out;
       }
 
-      // Convert a column to Date values (mutates in place).
-      // - Default output is Date objects.
-      // - Optional parser: (value, row, index) => Date | number | null
-      // - Optional format strings: 'YYYY-MM-DD', 'MM/DD/YYYY', 'DD/MM/YYYY', 'ISO'
-      // Options:
-      //   { format, parser, output: 'date'|'timestamp', unit: 'ms'|'s', onInvalid: 'null'|'keep'|'throw' }
+      // Convert a column to Date values 
       convertDate(colName, parserOrOptions) {
         if (!colName) throw new Error('convertDate: colName is required');
 
@@ -595,7 +579,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             const s = value.trim();
             if (!s) return null;
 
-            // Avoid timezone surprises for plain YYYY-MM-DD when no format provided.
+            // Avoid timezone surprises
             if (!format && /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.test(s)) {
               const m = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(s);
               const y = Number(m[1]);
@@ -655,7 +639,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     return new this.chart.DataFrame(data, cols); 
   };
 
-  // Ultra-simple loadDataFrame - just wraps loadTable and auto-converts
+  // loadDataFrame - wraps loadTable and auto-converts
   p5.prototype.loadDataFrame = function(path, callback) {
     const p = this;
     
@@ -667,11 +651,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       }
     });
     
-    // Return a proxy that converts to DataFrame on access
+    // Converts to DataFrame
     return new Proxy(table, {
       get(target, prop) {
         if (prop === '_rows' || prop === '_columns' || typeof prop === 'string') {
-          // Once loaded, convert and use DataFrame
           if (target.getRowCount() > 0) {
             const df = p.tableToDataFrame(target);
             return df[prop];
@@ -682,11 +665,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     });
   };
   
-  // Helper to convert p5.Table to DataFrame, or load CSV directly
+  // Helper to convert p5.Table to DataFrame or load CSV directly
   p5.prototype.tableToDataFrame = function(pathOrTable, type, options) {
     const p = this;
     
-    // If first argument is a string (path), load the CSV first
     if (typeof pathOrTable === 'string') {
       const df = new this.chart.DataFrame([]);
       
@@ -699,7 +681,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       return df;
     }
     
-    // Otherwise, convert existing p5.Table to DataFrame
     const table = pathOrTable;
     const columns = table.columns;
     const data = [];
@@ -709,7 +690,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       let obj = {};
       columns.forEach(col => {
         let val = row.get(col);
-        // Auto-convert numbers
         if (val !== null && val !== '' && !isNaN(Number(val))) {
           val = Number(val);
         }
@@ -721,13 +701,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     return new this.chart.DataFrame(data, columns);
   };
   
-  // Register as a preload method
   p5.prototype.registerPreloadMethod('loadDataFrame', p5.prototype);
 
-  // ==========================================
-  // 2. UTILS
-  // ==========================================
+/* 2. UTILS */
 
+  // Get color from palette
   function getColor(p, i, customPalette) {
     const pal = customPalette && Array.isArray(customPalette) && customPalette.length > 0
         ? customPalette
@@ -743,7 +721,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
   /**
    * Calculate nice tick interval for axes
-   * Returns a "nice" number (1, 2, 5 * 10^n) for the given range
+   * Returns a "nice" number for the given range
    * @param {number} range - The data range (max - min)
    * @param {number} targetTicks - Target number of ticks (default 5)
    * @returns {number} Nice interval value
@@ -754,7 +732,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const magnitude = Math.pow(10, Math.floor(Math.log10(roughInterval)));
     const normalized = roughInterval / magnitude;
     
-    // Choose nice number: 1, 2, 5, or 10
     let niceFactor;
     if (normalized <= 1) niceFactor = 1;
     else if (normalized <= 2) niceFactor = 2;
@@ -800,7 +777,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     
     let nanCount = 0;
     let nanIndices = [];
-    let nanDetails = {}; // Track which columns have NaN
+    let nanDetails = {}; 
     
     rows.forEach((row, idx) => {
       let hasNaN = false;
@@ -855,9 +832,8 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     };
   }
 
-  // ==========================================
-  // RESPONSIVE LAYOUT HELPERS
-  // ==========================================
+
+  // Responsive Helpers
 
   function clampNumber(value, min, max) {
     return Math.max(min, Math.min(max, value));
@@ -875,7 +851,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const rect = elt.getBoundingClientRect();
     const scaleX = rect.width ? (p.width / rect.width) : 1;
     const scaleY = rect.height ? (p.height / rect.height) : 1;
-    // scale: CSS pixels per canvas pixel (inverse of scaleX/scaleY)
     const cssPerCanvasX = rect.width && p.width ? (rect.width / p.width) : 1;
     const cssPerCanvasY = rect.height && p.height ? (rect.height / p.height) : 1;
     const cssPerCanvas = Math.min(cssPerCanvasX, cssPerCanvasY);
@@ -897,7 +872,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     if (options && options.mobilePadding === true) return true;
     const metrics = getCanvasDisplayMetrics(p);
     const displayW = metrics.width || p.width || 0;
-    // Treat < 640px as mobile (Tailwind's sm breakpoint).
     return displayW > 0 && displayW < 640;
   }
 
@@ -919,6 +893,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     return m;
   }
 
+  // Auto-fit canvas to parent container
   function ensureCanvasMatchesDisplay(p, options = {}) {
     const globalEnabled = p5.prototype.chart.autoFitCanvas !== false;
     const localEnabled = options.autoFitCanvas !== false;
@@ -928,17 +903,13 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const elt = getCanvasElement(p);
     if (!elt || !elt.getBoundingClientRect) return;
 
-    // Record the intended/original canvas size so we can restore it after shrinking.
     if (!p.chart._designCanvasSize) {
       p.chart._designCanvasSize = { w: p.width || 0, h: p.height || 0 };
     }
     const designW = Math.max(1, Math.round(p.chart._designCanvasSize.w || p.width || 1));
     const designH = Math.max(1, Math.round(p.chart._designCanvasSize.h || p.height || 1));
 
-    // Determine available size from parent container (fallback to viewport).
-    // Note: many pages don't give the canvas parent an explicit height; in that case
-    // using parent height can incorrectly collapse the canvas. We only trust parent
-    // height if it's reasonably sized.
+    // Determine available size from parent container 
     let availW = (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : designW;
     let availH = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : designH;
     try {
@@ -946,7 +917,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       if (parent && parent.getBoundingClientRect) {
         const pr = parent.getBoundingClientRect();
         if (pr.width && pr.width > 0) availW = pr.width;
-        // Only use parent height if it's explicitly constraining the layout.
         if (pr.height && pr.height >= 80) availH = pr.height;
       }
     } catch (e) {
@@ -954,12 +924,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     }
 
     // Fit to available space, but never grow beyond the design size.
-    // This avoids “squish” (CSS scaling) while still allowing the canvas to return to normal.
     const targetW = Math.max(1, Math.round(Math.min(designW, availW)));
     const targetH = Math.max(1, Math.round(Math.min(designH, availH)));
 
     if (Math.abs((p.width || 0) - targetW) > 1 || Math.abs((p.height || 0) - targetH) > 1) {
-      // Debounce per p5 instance to avoid repeated resize spam.
       if (!p.chart._lastAutoFit) p.chart._lastAutoFit = { w: 0, h: 0, frame: -1 };
       const last = p.chart._lastAutoFit;
       if (last.w === targetW && last.h === targetH && last.frame === p.frameCount) return;
@@ -974,23 +942,20 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     }
   }
 
-  // Mobile-first scaling: returns 1 on typical desktop canvases and scales down on small canvases.
-  // Can be disabled per-chart via { responsive: false }.
+  // Mobile-first scaling
   function getResponsiveScale(p, options = {}) {
     if (options && options.responsive === false) return 1;
     if (options && typeof options.responsiveScale === 'number') {
       return clampNumber(options.responsiveScale, 0.4, 2);
     }
 
-    // Prefer *displayed* canvas size (CSS pixels) so responsiveness works even when the
-    // sketch uses a fixed createCanvas(...) but the canvas is scaled via CSS.
+    // Prefer displayed canvas size
     const metrics = getCanvasDisplayMetrics(p);
     const displayW = metrics.width || ((options && options.width) ? options.width : p.width);
     const displayH = metrics.height || ((options && options.height) ? options.height : p.height);
     const minDim = Math.max(1, Math.min(displayW || 1, displayH || 1));
 
-    // Keep default typography “normal” for common chart sizes (e.g. 600x400 where minDim=400),
-    // and only scale down when the displayed canvas is actually smaller than that.
+    // Scale down typography when the displayed canvas is actually smaller than that
     const BASE_MIN_DIM = 400;
     if (minDim >= BASE_MIN_DIM) return 1;
     const displayScale = minDim / BASE_MIN_DIM;
@@ -1016,14 +981,14 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       left: Math.round((m0.left || 0) * s)
     };
 
-    // Keep margins usable on very small screens.
+    // Keep margins usable on very small screens
     const minMargin = 10;
     m.top = Math.max(minMargin, m.top);
     m.right = Math.max(minMargin, m.right);
     m.bottom = Math.max(minMargin, m.bottom);
     m.left = Math.max(minMargin, m.left);
 
-    // Ensure space for titles and footer/axis labels.
+    // Ensure space for titles and footer/axis labels
     const needsTop = !!(options && (options.title || options.subtitle));
     const topMin = needsTop ? Math.round(50 * s) : Math.round(18 * s);
     m.top = Math.max(m.top, topMin);
@@ -1032,7 +997,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const bottomMin = needsBottom ? Math.round(60 * s) : Math.round(18 * s);
     m.bottom = Math.max(m.bottom, bottomMin);
 
-    // Prevent margins from swallowing the plot area.
+    // Prevent margins from swallowing the plot area
     const maxLR = Math.max(40, Math.floor((baseW || 0) * 0.32));
     const maxTB = Math.max(40, Math.floor((baseH || 0) * 0.36));
     m.left = Math.min(m.left, maxLR);
@@ -1065,7 +1030,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
     const palette = opts.palette || (p && p.chart ? p.chart.palette : undefined);
 
-    // 1) Internal precomputed legend (preferred when available)
+    // Internal precomputed legend
     if (Array.isArray(opts._legendEntries) && opts._legendEntries.length > 0) {
       const colors = Array.isArray(opts._legendColors) ? opts._legendColors : [];
       return opts._legendEntries
@@ -1076,7 +1041,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         .filter(e => e.label.trim().length > 0);
     }
 
-    // 2) Public API: legendItems: [{label,color}] | [{name,color}] | ["Label", ...]
     const legendItems = (opts.legend && typeof opts.legend === 'object' && Array.isArray(opts.legend.items))
       ? opts.legend.items
       : opts.legendItems;
@@ -1099,7 +1063,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         .filter(e => e.label.trim().length > 0);
     }
 
-    // 3) Public API: legendLabels + legendColors
     if (Array.isArray(opts.legendLabels) && opts.legendLabels.length > 0) {
       const colors = Array.isArray(opts.legendColors) ? opts.legendColors : (Array.isArray(opts.colors) ? opts.colors : []);
       return opts.legendLabels
@@ -1110,7 +1073,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         .filter(e => e.label.trim().length > 0);
     }
 
-    // 4) Heuristic: multi-series charts commonly pass y as an array
     if (Array.isArray(opts.y) && opts.y.length > 1) {
       return opts.y
         .map((label, i) => ({ label: String(label), color: getColor(p, i, palette) }))
@@ -1146,7 +1108,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const layout = (legendSpec.layout === 'vertical') ? 'vertical' : 'horizontal';
 
     if (layout === 'vertical') {
-      // One item per row (true vertical legend)
       entries.forEach(entry => rows.push([entry]));
     } else {
       let row = [];
@@ -1195,7 +1156,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const out = [];
 
     const pushWrappedWord = (word) => {
-      // Break a single long "word" into chunks that fit.
       let chunk = '';
       for (let i = 0; i < word.length; i++) {
         const next = chunk + word[i];
@@ -1227,13 +1187,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           return;
         }
 
-        // Candidate doesn't fit.
         if (line) out.push(line);
 
         if (p.textWidth(word) <= maxW) {
           line = word;
         } else {
-          // Word itself doesn't fit; split it.
           pushWrappedWord(word);
           line = '';
         }
@@ -1309,9 +1267,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const gradientSpec = (opts && opts._legendGradient) ? opts._legendGradient : null;
     const useGradient = !!(legendSpec.enabled && gradientSpec && (!entries || entries.length === 0));
 
-    // Legend positioning:
-    // - horizontal (default): top/meta area, under subtitle
-    // - vertical: right side of plot (uses right margin)
+    // Legend positioning
     const isSideLegend = (legendSpec.layout === 'vertical');
 
     const legendLayout = isSideLegend
@@ -1330,7 +1286,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const titleLineGap = Math.round(3 * scale);
     const subtitleLineGap = Math.round(3 * scale);
 
-    // Title/subtitle wrapping (default on).
+    // Title/subtitle wrapping
     let titleLines = null;
     let subtitleLines = null;
     let titleHeight = 0;
@@ -1356,8 +1312,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
     p.pop();
 
-    // Vertical legends render on the right and do not participate in top meta flow.
-    // Horizontal legends live in the top meta flow, directly above the plot.
+    // Legend flow
     let legendTopY = null;
     let legendBottomY = null;
 
@@ -1380,7 +1335,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       yCursor = titleTopY - metaGap;
     }
 
-    // Compute required top space to avoid clipping.
+    // Compute required top space 
     let topmostY = 0;
     if (titleTopY !== null) topmostY = Math.min(topmostY, titleTopY);
     if (subtitleTopY !== null) topmostY = Math.min(topmostY, subtitleTopY);
@@ -1457,13 +1412,13 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     }
   }
 
+  // Axis Label and Footer Layout
   function computeAxisLabelLayout(p, opts, plotW, plotH) {
     const scale = (opts && typeof opts._responsiveScale === 'number')
       ? opts._responsiveScale
       : getResponsiveScale(p, opts);
 
     const axisLabelSize = (opts && opts.axisLabelSize) ? opts.axisLabelSize : Math.round(AXIS_LABEL_SIZE * scale);
-    // Bigger footer text by default.
     const sourceAuthorSize = (opts && opts.sourceAuthorSize)
       ? opts.sourceAuthorSize
       : (Math.round(SOURCE_AUTHOR_SIZE * scale) + 4);
@@ -1473,26 +1428,17 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const xLabelOffsetY = Math.round(40 * scale);
     const yLabelBaseOffsetX = -Math.round(30 * scale);
 
-    // Optional user padding offsets (do NOT replace auto layout; they shift it).
-    // yLabelX/yLabelY are treated as padding (delta) for the y-axis label.
     const yLabelPadX = (opts && opts.yLabelX !== undefined && isFinite(Number(opts.yLabelX))) ? Number(opts.yLabelX) : 0;
     const yLabelPadY = (opts && opts.yLabelY !== undefined && isFinite(Number(opts.yLabelY))) ? Number(opts.yLabelY) : 0;
 
-    // Optional internal measurement: width (in pixels) of the widest y-axis tick label.
-    // Charts can provide this via opts._yTickLabelW so the yLabel is padded past the ticks.
     const yTickLabelW = (opts && opts._yTickLabelW !== undefined && isFinite(Number(opts._yTickLabelW)))
       ? Math.max(0, Number(opts._yTickLabelW))
       : 0;
-    const outerPad = Math.round(10 * scale); // padding to canvas edge
-    // Gap between plot edge and the y-axis label block.
-    // This is separate from outerPad so you get BOTH:
-    // (1) space from canvas edge, and (2) space from the chart/ticks.
+    const outerPad = Math.round(10 * scale); 
     const gapToPlot = (opts && opts.yLabelGapToPlot !== undefined)
       ? Math.max(0, Number(opts.yLabelGapToPlot))
       : Math.round(18 * scale);
 
-    // Extra gap between the y-axis label and the y-axis tick numbers.
-    // (Tick numbers are typically drawn just left of the axis line.)
     const gapToTicks = (opts && opts.yLabelGapToTicks !== undefined)
       ? Math.max(0, Number(opts.yLabelGapToTicks))
       : Math.round(10 * scale);
@@ -1529,8 +1475,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       xHeight = xLines.length * axisLabelSize + Math.max(0, xLines.length - 1) * axisLineGap;
       p.pop();
 
-      // Previous single-line baseline used: y = h + xLabelOffsetY (with BOTTOM alignment).
-      // Convert to TOP-aligned starting Y: yTop = h + (xLabelOffsetY - axisLabelSize).
       xTopOffset = xLabelOffsetY - axisLabelSize;
     }
 
@@ -1547,10 +1491,8 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       yHeight = yLines.length * axisLabelSize + Math.max(0, yLines.length - 1) * axisLineGap;
       p.pop();
 
-      // After rotation, the text block extends +/- (yHeight/2) along plot +x.
-      // Keep the label fully outside the plot with a consistent gap.
       const desiredOffset = -Math.round((yHeight / 2) + gapToPlot + gapToTicks + yTickLabelW);
-      // Preserve the old default look for short labels (min -30px*scale).
+
       yOffsetX = Math.min(yLabelBaseOffsetX, desiredOffset);
     }
 
@@ -1559,7 +1501,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       requiredBottom = Math.max(requiredBottom, xTopOffset + xHeight + outerPad);
     }
     if (footerText) {
-      // Footer sits below xLabel if present.
+
       const footerBase = (opts.xLabel || opts.yLabel) ? Math.round(50 * scale) : Math.round(30 * scale);
       let footerOffset = footerBase;
       if (xLines) footerOffset = Math.max(footerOffset, xTopOffset + xHeight + outerPad);
@@ -1579,8 +1521,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
     let requiredLeft = 0;
     if (yLines) {
-      // Need enough margin so leftmost rotated text stays inside the canvas,
-      // plus some padding from the left edge.
       const yTranslateX = yOffsetX + yLabelPadX;
       requiredLeft = Math.max(requiredLeft, (-yTranslateX) + (yHeight / 2) + outerPad);
     }
@@ -1732,7 +1672,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     let y = startY;
 
     ll.rows.forEach(rowEntries => {
-      // Measure row width so we can honor LEFT/CENTER/RIGHT alignment.
+      // Measure row width for alignment.
       let rowW = 0;
       p.textSize(ll.textSize);
       rowEntries.forEach((entry) => {
@@ -1795,7 +1735,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     p.push();
     p.noStroke();
 
-    // Gradient bar (Canvas2D)
+    // Gradient bar
     const ctx = p.drawingContext;
     if (ctx && typeof ctx.createLinearGradient === 'function') {
       const grad = ctx.createLinearGradient(x, 0, x + ll.barW, 0);
@@ -1804,7 +1744,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       ctx.fillStyle = grad;
       ctx.fillRect(x, startY, ll.barW, ll.barH);
     } else {
-      // Fallback: solid fill if gradient unavailable
+      // Solid fill if gradient unavailable
       p.fill(String(c1));
       p.rect(x, startY, ll.barW, ll.barH);
     }
@@ -1862,7 +1802,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const sourceAuthorXOverride = (opts && opts.sourceAuthorX !== undefined && isFinite(Number(opts.sourceAuthorX))) ? Number(opts.sourceAuthorX) : null;
       const sourceAuthorYOverride = (opts && opts.sourceAuthorY !== undefined && isFinite(Number(opts.sourceAuthorY))) ? Number(opts.sourceAuthorY) : null;
 
-      // Title (wrapped by default; pushes plot down via margin calculation)
+      // Title 
       if (opts.title && metaLayout.title && Array.isArray(metaLayout.title.lines) && titleTopY !== null) {
           p.fill(TEXT_COLOR);
           p.textSize(titleSize);
@@ -1875,7 +1815,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.text(metaLayout.title.lines.join('\n'), tx, ty);
       }
 
-      // Subtitle (wrapped by default; sits below title)
+      // Subtitle 
       if (opts.subtitle && metaLayout.subtitle && Array.isArray(metaLayout.subtitle.lines) && subtitleTopY !== null) {
           p.drawingContext.font = (opts.subtitleBold ? 'bold' : 'normal') + ' ' + subtitleSize + 'px Roboto, sans-serif';
           p.fill(SUBTEXT_COLOR);
@@ -1888,7 +1828,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.text(metaLayout.subtitle.lines.join('\n'), sx, sy);
       }
 
-      // Legend (global option; off by default)
+      // Legend 
       if (metaLayout && metaLayout.legend && metaLayout.legend.enabled) {
         if (metaLayout.legend.position !== 'right') {
           if (metaLayout.legend.mode === 'gradient') drawLegendGradient(p, opts, w, metaLayout);
@@ -1950,10 +1890,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       p.pop();
   }
 
-  // Global hover state for ALL charts in this sketch
-  // tooltipScale: multiplier (e.g. 0.8 = smaller tooltips)
-  // tooltipTextSize: absolute px override (e.g. 10)
-  // tooltipFont: optional font-family override
+  // Global hover state
   p5.prototype.chart.hoverState = {
     active: false,
     x: 0,
@@ -1964,7 +1901,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     tooltipFont: undefined
   };
 
-  // Helper for rect hover in *global* coordinates
+  // Helper for rect hover detection
   function rectHover(p, gx, gy, w, h, content, options) {
     if (p.mouseX >= gx && p.mouseX <= gx + w && p.mouseY >= gy && p.mouseY <= gy + h) {
       p.chart.hoverState = {
@@ -1992,10 +1929,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     }
     p.push();
     p.noStroke();
-    p.fill(0, 0, 0, 220); // Using TOOLTIP_BG_COLOR concept
+    p.fill(0, 0, 0, 220); 
     p.rectMode(p.CORNER);
 
-    // Use displayed (CSS) canvas size so tooltips shrink/grow with the chart.
+    // Use displayed canvas size so tooltips shrink/grow with the chart
     const metrics = getCanvasDisplayMetrics(p);
     const displayW = metrics.width || p.width;
     const displayH = metrics.height || p.height;
@@ -2003,9 +1940,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const BASE_MIN_DIM = 400;
     const responsiveScale = clampNumber(minDim / BASE_MIN_DIM, 0.6, 1);
 
-    // Optional per-chart overrides passed through hoverState
-    // - tooltipScale: multiplier on top of responsiveScale
-    // - tooltipTextSize: absolute text size in px
     let effectiveScale = responsiveScale;
     const scaleMult = (h.tooltipScale !== undefined) ? Number(h.tooltipScale) : 1;
     if (Number.isFinite(scaleMult) && scaleMult !== 1) {
@@ -2042,16 +1976,15 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     
     p.translate(tx, ty); 
     p.rect(0, 0, boxW, boxH, tipRadius);
-    p.fill(255); // TOOLTIP_TEXT_COLOR
+    p.fill(255); 
     p.textAlign(p.LEFT, p.TOP);
     h.content.forEach((l, i) => p.text(l, tipPad, Math.round(8 * effectiveScale) + i * tipLineH));
     p.pop();
 
-    // reset so next frame recomputes
     p.chart.hoverState.active = false;
   }
 
-  // Draw tooltip *after* all user drawing each frame
+  // Draw tooltip after all user drawing each frame
   p5.prototype._drawChartTooltip = function() {
     drawTooltip(this);
   };
@@ -2075,9 +2008,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
   };
   p5.prototype.registerMethod('remove', p5.prototype._cleanupChart);
 
-  // ==========================================
-  // 3. BAR CHART
-  // ==========================================
+ /* 3. BAR CHART */
   
   /**
    * Creates a bar chart
@@ -2096,7 +2027,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     let valCols = options.y || options.values || [df.columns[1]];
     if (!Array.isArray(valCols)) valCols = [valCols];
     
-    // Validate data for NaN values
+    // Validate data
     const validation = validateData(df, valCols, options, 'bar');
     
     const labelPos = options.labelPos || 'auto';
@@ -2104,7 +2035,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const labels = df.col(labelCol);
     const rows = df.rows;
 
-    // Precompute value axis ticks early so meta layout can reserve space for y-axis tick labels.
+    // Precompute value axis ticks
     let maxVal = 0;
     rows.forEach(row => {
       let sum = stacked
@@ -2122,7 +2053,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     function formatBarTick(val) {
       const num = Number(val);
       if (!isFinite(num)) return String(val);
-      // Show integers as integers, otherwise keep a minimal number of decimals.
+      // Show integers as integers, otherwise keep a minimal number of decimals
       if (Math.abs(num - Math.round(num)) < 1e-9) return String(Math.round(num));
       const absVal = Math.abs(num);
       if (absVal >= 1000) return (num / 1000).toFixed(1) + 'k';
@@ -2143,9 +2074,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         let lblWidth = p.textWidth(String(lbl));
         if (lblWidth > maxLabelWidth) maxLabelWidth = lblWidth;
       });
-      labelSpace = maxLabelWidth + scalePx(p, options, 20, 10, 40); // padding
+      labelSpace = maxLabelWidth + scalePx(p, options, 20, 10, 40); 
     } else if (!labelSpace) {
-      labelSpace = scalePx(p, options, 70, 40, 120); // Default for vertical
+      labelSpace = scalePx(p, options, 70, 40, 120); 
     }
     
     if (options.xLabel === undefined) options.xLabel = labelCol;
@@ -2154,9 +2085,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const leftMargin = options.yLabel ? scalePx(p, options, 50, 0, 120) : 0;
     const baseMargin = { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: DEFAULT_MARGIN.bottom, left: leftMargin };
 
-    // Legend entries:
-    // - If multiple value columns, legend represents series (colors keyed by series index j).
-    // - If a single value column, legend represents the displayed bars/categories (colors keyed by bar index i).
+    // Legend entries
     const legendEntries = (Array.isArray(valCols) && valCols.length > 1)
       ? valCols.slice()
       : labels.map(v => String(v));
@@ -2165,7 +2094,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const _responsiveScale = getResponsiveScale(p, options);
     const metaOpts = Object.assign({}, options, { _responsiveScale, _legendEntries: legendEntries, _legendColors: legendColors });
 
-    // Measure the widest y-axis tick label (vertical bars only) so yLabel doesn't overlap ticks.
+    // Measure the widest y-axis tick label 
     if (orient === 'vertical') {
       const tickLabelSizeForMeasure = scalePx(p, options, TICK_LABEL_SIZE, 8, 14);
       p.push();
@@ -2184,20 +2113,20 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     let margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
     margin0 = withMobileRightPadding(p, options, margin0);
 
-    // Reserve space for right-side vertical legends.
+    // Reserve space for right-side vertical legends
     margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
     const canvasW = p.width;
     const canvasH = p.height;
     const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
     const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
 
-    // Expand top margin if legend/title/subtitle need more space.
+    // Expand top margin if legend/title/subtitle need more space
     margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
-    // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+    // Expand left/bottom margins if x/y axis labels (or footer) need more space
     margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
 
-    // Axis margins can change plot width; re-run top layout once.
+    // Axis margins can change plot width; re-run top layout once
     margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
     const margin = margin0;
@@ -2217,8 +2146,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     // Right-side vertical legend
     drawSideLegend(p, metaOpts, w, h);
 
-    // valueAxis and formatBarTick computed above (also used for meta measurements).
-
     if (options.background !== undefined && !isTransparentBackground(options.background)) {
       p.noStroke();
       p.fill(options.background);
@@ -2237,7 +2164,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         const barStartX = labelSpace;
         const barWidth = w - labelSpace;
 
-        // Optional grid (vertical lines at numeric ticks)
         if (showGrid) {
           p.push();
           p.stroke(gridColor);
@@ -2249,9 +2175,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.pop();
         }
         
-        // Y-axis
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(barStartX, 0, barStartX, h);
-        // X-axis with ticks
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(barStartX, h, w, h);
         p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
         valueAxis.ticks.forEach(tickVal => {
@@ -2267,7 +2191,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             let xStack = 0;
             valCols.forEach((col, j) => {
                 let rawVal = rows[i][col];
-                // Skip if NaN/null/empty
+                // Skip if NaN
                 if (rawVal === null || rawVal === '' || rawVal === undefined || 
                     (typeof rawVal === 'number' && isNaN(rawVal)) ||
                     (typeof rawVal === 'string' && isNaN(Number(rawVal)))) {
@@ -2280,7 +2204,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 if (stacked) xStack += rectW;
                 let by = stacked ? yBase : yBase + (j * barH);
                 
-                // If 1 col, use 'i', if multiple, use 'j'
                 let colorIndex = valCols.length > 1 ? j : i;
                 let c = getColor(p, colorIndex, options.palette);
                 
@@ -2337,7 +2260,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         const colW = w / labels.length;
         const barW = stacked ? (colW * BAR_GAP_RATIO) : (colW * BAR_GAP_RATIO / valCols.length);
         
-        // Optional grid (horizontal lines at numeric ticks)
         if (showGrid) {
           p.push();
           p.stroke(gridColor);
@@ -2351,7 +2273,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
         // X-axis
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, h, w, h);
-        // Y-axis with ticks
+        // Y-axis 
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, 0, 0, h);
         p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
         valueAxis.ticks.forEach(tickVal => {
@@ -2379,7 +2301,6 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 if (stacked) yStack -= rectH;
                 let bx = stacked ? xBase : xBase + (j * barW);
                 
-                // If 1 col, use 'i', if multiple, use 'j'
                 let colorIndex = valCols.length > 1 ? j : i;
                 let c = getColor(p, colorIndex, options.palette);
 
@@ -2440,9 +2361,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     p.pop();
   };
 
-  // ==========================================
-  // 4. PIE CHART 
-  // ==========================================
+  /* 4. PIE CHART (Donut embedded) */
   
   /**
    * Creates a pie/donut chart
@@ -2459,10 +2378,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     const valCol = options.value || df.columns[1];
     const lblCol = options.label || df.columns[0];
     
-    // Validate data for NaN values - pie charts default to STRICT
+    // Validate data
     const pieOptions = Object.assign({}, options);
     if (pieOptions.nanPolicy === undefined) {
-        pieOptions.nanPolicy = 'strict'; // Pie charts are strict by default
+        pieOptions.nanPolicy = 'strict'; 
     }
     
     // Data Processing
@@ -2516,7 +2435,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         // 'silent' mode: no output
     }
     
-    // Filter out NaN values for 'warn' and 'silent' modes
+    // Filter out NaN values
     const values = [];
     const labels = [];
     allValues.forEach((v, i) => {
@@ -2539,12 +2458,12 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     
     const total = values.reduce((a,b) => a+b, 0);
     
-    // Layout & Config
+    // Layout
     options.textAlign = options.textAlign || p.LEFT;
 
     const baseMargin = { top: DEFAULT_MARGIN.top, right: DEFAULT_MARGIN.right, bottom: 40, left: DEFAULT_MARGIN.right };
 
-    // Legend entries for pie slices.
+    // Legend entries
     const legendEntries = labels.slice();
     const legendColors = legendEntries.map((_, i) => getColor(p, i, options.palette));
 
@@ -2554,20 +2473,20 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     let margin0 = options.margin || getResponsiveMargin(p, options, baseMargin);
     margin0 = withMobileRightPadding(p, options, margin0);
 
-    // Reserve space for right-side vertical legends.
+    // Reserve space for right-side vertical legends
     margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
     const canvasW = p.width;
     const canvasH = p.height;
     const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
     const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
 
-    // Expand top margin if legend/title/subtitle need more space.
+    // Expand top margin if legend/title/subtitle need more space
     margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
-    // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+    // Expand left/bottom margins if x/y axis labels (or footer) need more space
     margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
 
-    // Axis margins can change plot width; re-run top layout once.
+    // Axis margins can change plot width; re-run top layout once
     margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
     const margin = margin0;
@@ -2589,18 +2508,18 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     p.push();
     p.translate(margin.left, margin.top);
     
-    // Auto title if not provided
+    // Auto title
     if (options.title === undefined) {
       options.title = `${lblCol} vs. ${valCol}`;
     }
-    // Draw Metadata (Title, Subtitle, etc.), left-aligned
+    // Draw Metadata
     let pieMetaOpts = Object.assign({}, metaOpts, { textAlign: p.LEFT });
     drawMeta(p, pieMetaOpts, w, h);
 
     // Right-side vertical legend
     drawSideLegend(p, pieMetaOpts, w, h);
     
-    // Shift the pie center down if outside labels are used to clear title space.
+    // Shift the pie center down
     p.translate(cx, cy + pieVerticalShift);
     
     let startA = -p.HALF_PI;
@@ -2610,7 +2529,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       let endA = startA + ang;
       let c = getColor(p, i, options.palette);
 
-      // Hover Detection (coordinates adjusted for the pie's new center)
+      // Hover Detection
       let mx = p.mouseX - (margin.left + cx);
       let my = p.mouseY - (margin.top + cy + pieVerticalShift);
       let d = p.dist(0, 0, mx, my);
@@ -2625,7 +2544,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       let a0 = norm(startA);
       let a1 = norm(endA);
       
-      // Donut/Pie Hover Check
+      // Donut/Pie Hover
       let holeRadius = options.holeRadius || 0.6;
       let inRing = isDonut ? (d < r && d > r * holeRadius) : (d < r);
       
@@ -2689,20 +2608,20 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             p.ellipse(0, 0, r*2*hole, r*2*hole);
             p.noErase();
           }
-          // If erase() is unavailable, skip hole fill (won't be transparent).
+          // Hole fill functionality skipping
         } else {
           p.fill(options.background || 255);
           p.ellipse(0, 0, r*2*hole, r*2*hole);
         }
       }
 
-      // --- Draw Labels & Connectors ---
+      // Draw Labels and Connectors
       if (options.labelPos !== 'none') {
           let mid = startA + ang/2;
-          // Label anchor radius: further out if outside, centered in ring if donut
+          // Label anchor radius
           let tr = (options.labelPos === 'outside') 
                    ? r + pieOutsideOffset
-                   : r * (isDonut ? (1 + (options.holeRadius || DONUT_HOLE_RADIUS)) / 2 : 0.65); // Center of ring or 65% radius
+                   : r * (isDonut ? (1 + (options.holeRadius || DONUT_HOLE_RADIUS)) / 2 : 0.65); // Center of ring 
                    
           let tx = Math.cos(mid) * tr;
           let ty = Math.sin(mid) * tr;
@@ -2720,7 +2639,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
               default: break;
           }
 
-          // --- 1. Draw Connector Line ---
+          // Draw Connector Line
           if (options.showConnectors && options.labelPos === 'outside') {
               const r_diag = r + 10;
               
@@ -2735,25 +2654,25 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
               p.strokeWeight(1);
               p.noFill();
               p.beginShape();
-              p.vertex(x1, y1); // 1. Start on pie edge
-              p.vertex(x2, y2); // 2. Elbow point
-              p.vertex(tx, y2); // 3. Horizontal line to text anchor X (at elbow's Y level)
+              p.vertex(x1, y1); // Start on pie edge
+              p.vertex(x2, y2); // Elbow point
+              p.vertex(tx, y2); // Horizontal line to text anchor X (at elbow's Y level)
               p.endShape();
               p.pop();
           }
-          // --- End Connector Line ---
+          // End Connector Line
 
 
-          // 2. Positioning & Alignment Fix
+          // Positioning and Alignment
           p.noStroke(); 
           p.textSize(options.labelSize || pieLabelSize);
 
-          // On mobile, outline ALL pie/donut labels for a unified look.
+          // On mobile, outline ALL pie/donut labels for a unified look
           const outlineActive = isMobileLayout(p, options);
           const outlineW = scalePx(p, options, 2, 1, 3);
           
           if (options.labelPos === 'outside') {
-              // Alignment fix: Anchor away from pie center
+              // Anchor away from pie center
               let align = (tx > 0) ? p.LEFT : p.RIGHT;
               let buffer = (tx > 0) ? scalePx(p, options, 5, 3, 10) : -scalePx(p, options, 5, 3, 10);
               
@@ -2767,7 +2686,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
               p.fill(TEXT_COLOR);
               tx += buffer;
 
-              // Keep outside labels within chart bounds (especially on mobile)
+              // Keep outside labels within chart bounds
               const labelPad = scalePx(p, options, 6, 4, 10);
               const maxOutsideLabelW = (options.outsideLabelMaxWidth !== undefined)
                 ? options.outsideLabelMaxWidth
@@ -2776,11 +2695,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                     Math.max(70, Math.floor(w * (isMobileLayout(p, options) ? 0.26 : 0.32)))
                   );
 
-              // Truncate outside labels too (previously only truncated inside labels)
+              // Truncate outside labels too 
               labelText = truncate(p, labelText, maxOutsideLabelW);
               const tw = p.textWidth(labelText);
 
-              // tx is in local pie coords (after translating to center)
               if (align === p.LEFT) {
                 tx = Math.min(tx, (cx - labelPad) - tw);
               } else {
@@ -2801,7 +2719,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
               p.fill(useDark ? TEXT_COLOR : 255);
           }
           
-          // 3. Truncation and Visibility
+          // Truncation and Visibility
           let maxLabelW = (options.labelPos === 'outside') ? scalePx(p, options, 100, 70, 160) : Math.abs(tr * ang * 0.9);
 
             if (options.labelPos !== 'outside' && p.textWidth(labelText) > maxLabelW) {
@@ -2811,7 +2729,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
              labelText += '…';
           }
 
-          // Hide label if slice is too small to fit text (only applicable to inside labels)
+          // Hide label if slice is too small to fit text 
            if (options.labelPos === 'outside' || ang > 0.15) {
              p.text(labelText, tx, ty);
            }
@@ -2823,9 +2741,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
     p.pop();
   };
   
-// ==========================================
-  // 5. SERIES
-  // ==========================================
+/* 5. SERIES CHART (Line plot) */
   
   /**
   * Creates a series chart
@@ -2840,11 +2756,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const xCol = options.x || df.columns[0];
       const yCols = Array.isArray(options.y) ? options.y : [options.y || df.columns[1]];
       
-      // Validate data for NaN values
+      // Validate data
       const validation = validateData(df, yCols, options, 'series');
       
-
-      // Legend entries for multiple Y series.
+      // Legend entries 
       const legendEntries = yCols.slice();
       const legendColors = legendEntries.map((_, i) => getColor(p, i, options.palette));
 
@@ -2854,20 +2769,20 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       let margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
       margin0 = withMobileRightPadding(p, options, margin0);
 
-      // Reserve space for right-side vertical legends.
+      // Reserve space for right-side vertical legends
       margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
       const canvasW = p.width;
       const canvasH = p.height;
       const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
       const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
 
-      // Expand top margin if legend/title/subtitle need more space.
+      // Expand top margin if legend/title/subtitle need more space
       margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
-      // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+      // Expand left/bottom margins if x/y axis labels (or footer) need more space
       margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
 
-      // Axis margins can change plot width; re-run top layout once.
+      // Axis margins can change plot width; re-run top layout once
       margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
       const margin = margin0;
@@ -2887,24 +2802,20 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const isTransparentBg = isTransparentBackground(options.background);
       const bgColor = isTransparentBg ? 255 : (options.background || 255);
       
-      // OPTION: showValues
-      // true    = Always visible (static)
-      // "click" = Visible on click
-      // false   = Hidden
       const showVals = options.showValues !== undefined ? options.showValues : false; 
       const lblPos = options.labelPos || 'auto';
 
 
-      // Gather all X and Y values (for multi-series)
+      // Gather all X and Y values
       const xs = df.col(xCol).map(Number);
       const rows = df.rows;
       let allY = [];
       yCols.forEach(c => allY.push(...df.col(c).map(v => Number(v))));
-      // Filter out NaN for axis bounds
+      // Filter out NaN 
       const validXs = xs.filter(x => !isNaN(x));
       const validYs = allY.filter(y => !isNaN(y));
       if (validYs.length === 0) return;
-      // Axis bounds: default to include 0 unless negative values or user override
+      // Axis bounds
       const minX = (options.minX !== undefined) ? options.minX : (validXs.length > 0 ? Math.min(0, ...validXs) : 0);
       const maxX = (options.maxX !== undefined) ? options.maxX : (validXs.length > 0 ? Math.max(0, ...validXs) : 1);
       const minY = (options.minY !== undefined) ? options.minY : (validYs.length > 0 ? Math.min(0, ...validYs) : 0);
@@ -2923,8 +2834,8 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       
       // Axes
       p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
-      p.line(0, h, w, h); // X
-      p.line(0, 0, 0, h); // Y
+      p.line(0, h, w, h); 
+      p.line(0, 0, 0, h); 
 
       // Calculate nice axis bounds
       const yAxis = niceAxisBounds(minY, maxY);
@@ -2943,7 +2854,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
             }
             return num.toFixed(decimals);
           }
-      // Y-Ticks (using nice intervals)
+      // Y-Ticks
       yAxis.ticks.forEach(tickVal => {
           let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
           p.line(-tickLen, yVal, 0, yVal);
@@ -2952,7 +2863,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.stroke(TICK_COLOR);
       });
       
-      // X-Ticks (numeric, match axis bounds)
+      // X-Ticks 
       const xAxis = niceAxisBounds(minX, maxX);
       xAxis.ticks.forEach(tickVal => {
         let xVal = p.map(tickVal, minX, maxX, 0, w);
@@ -2968,12 +2879,12 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         p.beginShape();
         xs.forEach((xVal, j) => {
           let val = rows[j][col];
-          // Check for NaN/null/empty - create break in line
+          // Check for NaN/null/empty 
           if (val === null || val === '' || val === undefined || 
               (typeof val === 'number' && isNaN(val)) ||
               (typeof val === 'string' && isNaN(Number(val)))) {
-            p.endShape(); // End current line segment
-            p.beginShape(); // Start new segment after gap
+            p.endShape(); 
+            p.beginShape(); 
             return;
           }
           let px = p.map(xs[j], minX, maxX, 0, w);
@@ -2983,7 +2894,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         p.endShape();
       });
 
-      // Draw Points & Labels
+      // Draw Points and Labels
       if (options.dots !== false) {
           yCols.forEach((col, i) => {
               let c = getColor(p, i, options.palette);
@@ -2991,15 +2902,14 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                 xs.forEach((xVal, j) => {
                   let val = Number(rows[j][col]);
                   if (isNaN(val)) return;
-                  let r = rows[j]; // <-- Fix: get the correct row object
-                  // Use axis-mapped x (not index)
+                  let r = rows[j]; 
                   let px = p.map(xs[j], minX, maxX, 0, w);
                   let py = p.map(val, yAxis.min, yAxis.max, h, 0);
                   let d = p.dist(p.mouseX-margin.left, p.mouseY-margin.top, px, py);
                   let isHover = d < (ptSz + 4);
                   let isClicked = isHover && p.mouseIsPressed;
 
-                  // 1. Draw Dot
+                  // Draw Dot
                   p.strokeWeight(isHollow ? pointStrokeW : 0);
                   if (isHollow) {
                     p.stroke(c);
@@ -3013,14 +2923,14 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                       if(isHollow) p.strokeWeight(pointHoverStrokeW);
                       else { let hc = p.color(c); hc.setAlpha(HOVER_ALPHA); p.fill(hc); p.circle(px, py, ptSz * POINT_HOVER_SCALE); }
                       
-                      // Only show tooltip if NOT showing static labels
+                      // Only show tooltip if not showing static labels
                       if (showVals !== true) {
                         let content;
                         if (typeof options.tooltip === 'function') {
                           content = options.tooltip(col, val, i, {row: r, col: col});
                           if (!Array.isArray(content)) content = [String(content)];
                         } else {
-                          // Check for per-chart or global tooltip columns
+                          // Check for tooltips
                           let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
                           if (Array.isArray(tooltipCols) && r) {
                             content = tooltipCols.map(tc => {
@@ -3048,18 +2958,15 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                   } 
                   if (!isHover || isHollow) p.circle(px, py, ptSz);
 
-                  // 2. Draw Label (Static or Interaction)
                   let drawThisLabel = false;
                   
-                  // A. Static Mode: Always show
                   if (showVals === true) drawThisLabel = true;
                   
-                  // B. Click Mode: Show only on click
                   else if (showVals === 'click' && isClicked) drawThisLabel = true;
 
                     if (drawThisLabel) {
                       p.noStroke();
-                      // Use label color protection: auto choose black/white for contrast with point color
+                      // Use label color protection
                       let labelBg = c;
                       p.fill(getAutoLabelColor(labelBg));
                       p.textSize(dataLabelSize);
@@ -3067,14 +2974,12 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
                       let txt = String(val);
                       let offset = ptSz/2 + LABEL_OFFSET;
-                      let ly = py - offset; // Default: Top
+                      let ly = py - offset; 
 
                       if (lblPos === 'bottom') {
                         ly = py + offset;
                       } else if (lblPos === 'auto') {
-                        // Prevent going off top edge
                         if (py < 25) ly = py + offset; 
-                        // Alternate for multiple lines to reduce overlap
                         else if (yCols.length > 1 && i % 2 !== 0) ly = py + offset;
                       }
 
@@ -3084,16 +2989,14 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           });
       }
 
-            // Draw axis lines over the data
+            // Draw axis lines
             p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
             p.line(0, h, w, h); // X
             p.line(0, 0, 0, h); // Y
       p.pop();
   };
 
-// ==========================================
-  // 6. SCATTER PLOT 
-  // ==========================================
+/* 6. SCATTER PLOT */
 
   /**
    * Creates a scatter plot
@@ -3108,7 +3011,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const xCol = options.x || df.columns[0];
       const yCol = options.y || df.columns[1];
       
-      // Validate data for NaN values
+      // Validate data
       const validation = validateData(df, [xCol, yCol], options, 'scatter');
       
 
@@ -3121,7 +3024,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
       const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
 
-      // --- Data Extraction ---
+      // Data Extraction
       const rows = df.rows;
       const xs = df.col(xCol).map(Number);
       const ys = df.col(yCol).map(Number);
@@ -3129,7 +3032,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
       // Variable Size Logic
       let sizes = [];
-      const sizeCol = options.size; // Column name for size
+      const sizeCol = options.size; 
       let minS = 0, maxS = 0;
       if (sizeCol && rows[0][sizeCol] !== undefined) {
           sizes = df.col(sizeCol).map(Number);
@@ -3145,9 +3048,9 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
 
       // Variable Color Logic
       let colors = [];
-      const colorCol = options.color; // Column name for color
-      let colorDomain = []; // For categorical mapping
-      let minC = 0, maxC = 0; // For numerical mapping
+      const colorCol = options.color; 
+      let colorDomain = []; 
+      let minC = 0, maxC = 0; 
       let isColorNumeric = false;
       
       if (colorCol && rows[0][colorCol] !== undefined) {
@@ -3162,12 +3065,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                  maxC = Math.max(...vals);
              }
           } else {
-             // Unique categories
              colorDomain = [...new Set(df.col(colorCol))];
           }
       }
 
-      // Bounds (default to include 0,0) - filter out NaN values
+      // Bounds, filter NaNs
       const validXs = xs.filter(x => !isNaN(x));
       const validYs = ys.filter(y => !isNaN(y));
       const minX = (options.minX !== undefined) ? options.minX : (validXs.length > 0 ? Math.min(0, ...validXs) : 0);
@@ -3175,12 +3077,10 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const minY = (options.minY !== undefined) ? options.minY : (validYs.length > 0 ? Math.min(0, ...validYs) : 0);
       const maxY = (options.maxY !== undefined) ? options.maxY : (validYs.length > 0 ? Math.max(0, ...validYs) : 1);
 
-      // Defaults
       if (options.xLabel === undefined) options.xLabel = xCol;
       if (options.yLabel === undefined) options.yLabel = yCol;
       if (options.title === undefined) options.title = `${yCol} vs. ${xCol}`;
 
-      // Config
       const isHollow = options.pointStyle === 'hollow';
       const isTransparentBg = isTransparentBackground(options.background);
       const bgColor = isTransparentBg ? 255 : (options.background || 255);
@@ -3188,9 +3088,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       const lblPos = options.labelPos || 'auto';
       const palette = options.palette || p.chart.palette;
 
-      // Legend:
-      // - If categorical color mapping: item legend by category.
-      // - If numeric color mapping: gradient legend.
+      // Legend
       let legendEntries = [];
       let legendColors = [];
       let legendGradient = null;
@@ -3216,16 +3114,16 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         _legendGradient: legendGradient
       });
 
-      // Reserve space for right-side vertical legends.
+      // Reserve space for right-side vertical legends
       margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
 
-      // Expand top margin if legend/title/subtitle need more space.
+      // Expand top margin if legend/title/subtitle need more space
       margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
-      // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+      // Expand left/bottom margins if x/y axis labels (or footer) need more space
       margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
 
-      // Axis margins can change plot width; re-run top layout once.
+      // Axis margins can change plot width; re-run top layout once
       margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
       const margin = margin0;
@@ -3246,7 +3144,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
       // Right-side vertical legend
       drawSideLegend(p, metaOpts, w, h);
       
-      // --- Axes ---
+      // Axes
       p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
       p.line(0, h, w, h); // X
       p.line(0, 0, 0, h); // Y
@@ -3266,7 +3164,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         return val.toFixed(decimals);
       }
 
-      // X-Ticks (using nice intervals)
+      // X-Ticks
       p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
       xAxis.ticks.forEach(tickVal => {
         let xVal = p.map(tickVal, xAxis.min, xAxis.max, 0, w);
@@ -3276,7 +3174,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         p.stroke(TICK_COLOR);
       });
       
-      // Y-Ticks (using nice intervals)
+      // Y-Ticks
       yAxis.ticks.forEach(tickVal => {
         let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
         p.stroke(TICK_COLOR); p.line(-tickLen, yVal, 0, yVal);
@@ -3285,13 +3183,11 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
         p.stroke(TICK_COLOR);
       });
 
-      // --- Connect Lines  ---
+      // Connect Lines
       if (options.connect) {
           let lineC = options.lineColor || palette[0];
           p.noFill(); p.stroke(lineC); p.strokeWeight(options.lineSize || DEFAULT_LINE_SIZE);
           p.beginShape();
-          // Note: connecting assumes order in data array. 
-          // If you need sorted, sort the DataFrame before passing.
           for(let i=0; i<xs.length; i++) {
              let cx = p.map(xs[i], xAxis.min, xAxis.max, 0, w);
              let cy = p.map(ys[i], yAxis.min, yAxis.max, h, 0);
@@ -3300,7 +3196,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           p.endShape();
       }
       
-      // --- Scatter Points ---
+      // Scatter points
       p.noStroke(); 
       const baseColor = options.baseColor || palette[0];
       
@@ -3311,14 +3207,14 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           let cx = p.map(xs[i], xAxis.min, xAxis.max, 0, w);
           let cy = p.map(ys[i], yAxis.min, yAxis.max, h, 0);
           
-          // 1. Determine Radius
+          // Determine Radius
           let r = fixedPtSz;
           if (sizeCol && sizes[i] !== undefined && !isNaN(sizes[i])) {
              let norm = (sizes[i] - minS) / (maxS - minS || 1);
              r = p.map(norm, 0, 1, minPtSz, maxPtSz);
           }
 
-          // 2. Determine Color
+          // Determine Color
           let ptColor = p.color(baseColor);
           if (colorCol) {
              let val = rows[i][colorCol];
@@ -3336,7 +3232,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
              }
           }
 
-          // 3. Draw Point
+          // Draw Point
           let d = p.dist(p.mouseX-margin.left, p.mouseY-margin.top, cx, cy);
           // Hit area includes radius + buffer
           let isHover = d < (r/2 + 4); 
@@ -3362,16 +3258,15 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
                  let hc = p.color(ptColor); 
                  hc.setAlpha(HOVER_ALPHA); 
                  p.fill(hc); 
-                 p.circle(cx, cy, r * POINT_HOVER_SCALE); // Bloom effect
+                 p.circle(cx, cy, r * POINT_HOVER_SCALE); 
                }
-               // Tooltip (only if values not static)
+               // Tooltip 
                if (showVals !== true) {
                  let content;
                  if (typeof options.tooltip === 'function') {
                    content = options.tooltip(rows[i], i, {x: xs[i], y: ys[i], size: sizes[i], color: rows[i][colorCol]});
                    if (!Array.isArray(content)) content = [String(content)];
                  } else {
-                   // Check for per-chart or global tooltip columns
                    let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
                    if (Array.isArray(tooltipCols) && rows[i]) {
                      content = tooltipCols.map(tc => {
@@ -3400,7 +3295,7 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           
           if (!isHover || isHollow) p.circle(cx, cy, r);
 
-          // 4. Value Labels
+          // Value Labels
           let drawLabel = false;
           if (showVals === true) drawLabel = true;
           else if (showVals === 'click' && isClicked) drawLabel = true;
@@ -3423,16 +3318,14 @@ canvas.p5Canvas, canvas[id^="defaultCanvas"]{max-width:100%;height:auto;}
           }
       }
 
-            // Draw axis lines over the data
+            // Draw axis lines 
             p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
-            p.line(0, h, w, h); // X
-            p.line(0, 0, 0, h); // Y
+            p.line(0, h, w, h); 
+            p.line(0, 0, 0, h); 
       p.pop();
   };
 
-// ==========================================
-// 7. HISTOGRAM 
-// ==========================================
+/* 7. HISTOGRAM */
 
 /**
  * Creates a histogram
@@ -3446,15 +3339,15 @@ p5.prototype.hist = function(data, options = {}) {
     let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
     const col = options.x || options.column || df.columns[0];
     
-    // Validate data for NaN values BEFORE filtering
+    // Validate data
     const allVals = df.col(col);
     const originalCount = allVals.length;
     
-    // --- Data Preparation (Binning) ---
+    // Data Preparation
     const vals = allVals.map(Number).filter(v => !isNaN(v));
     if (vals.length === 0) return;
     
-    // Report filtered values if policy is 'warn'
+    // Report filtered values
     const filteredCount = originalCount - vals.length;
     if (filteredCount > 0) {
         const policy = options.nanPolicy || p5.prototype.chart.nanPolicy || 'warn';
@@ -3473,7 +3366,7 @@ p5.prototype.hist = function(data, options = {}) {
         }
     }
     
-    // Determine bounds and optimal bin size (Natural Bins)
+    // Determine bounds and optimal bin size
     const requestedBins = options.bins || HIST_DEFAULT_BINS;
     const minRaw = Math.min(...vals);
     const maxRaw = Math.max(...vals);
@@ -3507,10 +3400,10 @@ p5.prototype.hist = function(data, options = {}) {
 
     const binEdges = Array.from({ length: finalBins + 1 }, (_, i) => minV + step * i);
     
-    // --- Layout and Scaling ---
+    // Layout and Scaling
     const maxCount = Math.max(...counts);
 
-    // Legend entry for histogram (single series).
+    // Legend entry
     const _responsiveScale = getResponsiveScale(p, options);
     const legendEntries = [String(col)];
     const legendColors = [getColor(p, 0, options.palette)];
@@ -3519,20 +3412,20 @@ p5.prototype.hist = function(data, options = {}) {
     let margin0 = options.margin || getResponsiveMargin(p, options, DEFAULT_MARGIN);
     margin0 = withMobileRightPadding(p, options, margin0);
 
-    // Reserve space for right-side vertical legends.
+    // Reserve space for right-side vertical legends
     margin0 = ensureMetaRightMargin(p, metaOpts, margin0);
     const canvasW = p.width;
     const canvasH = p.height;
     const baseW = (options.width !== undefined) ? Math.min(options.width, canvasW) : canvasW;
     const baseH = (options.height !== undefined) ? Math.min(options.height, canvasH) : canvasH;
 
-    // Expand top margin if legend/title/subtitle need more space.
+    // Expand top margin if legend/title/subtitle need more space
     margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
-    // Expand left/bottom margins if x/y axis labels (or footer) need more space.
+    // Expand left/bottom margins if x/y axis labels (or footer) need more space
     margin0 = ensureMetaAxisMargins(p, metaOpts, margin0, baseW, baseH);
 
-    // Axis margins can change plot width; re-run top layout once.
+    // Axis margins can change plot width; re-run top layout once
     margin0 = ensureMetaTopMargin(p, metaOpts, margin0, baseW - margin0.left - margin0.right);
 
     const margin = margin0;
@@ -3547,12 +3440,12 @@ p5.prototype.hist = function(data, options = {}) {
     const maxAxisVal = Math.ceil(maxCount / 5) * 5;
     const barW = w / finalBins; 
     
-    // 1. Determine Background Luminance for Contrast
+    // Determine Background Luminance
     const bgColor = isTransparentBackground(options.background) ? p.color(255) : (options.background || p.color(255)); 
     const bg = p.color(bgColor);
     const bgLuminance = (p.red(bg) * 0.299 + p.green(bg) * 0.587 + p.blue(bg) * 0.114);
     
-    // 2. Set Default Border Color for Reproducible Contrast
+    // Set Default Border Color for Reproducible Contrast
     const defaultContrastColor = (bgLuminance > 128) ? p.color('#333333') : p.color('#CCCCCC');
     
     const borderWeight = options.borderWeight || HIST_BORDER_WEIGHT;
@@ -3568,7 +3461,7 @@ p5.prototype.hist = function(data, options = {}) {
     p.push();
     p.translate(margin.left, margin.top);
     
-    // Metadata (Titles, Labels)
+    // Titles, Labels
     options.xLabel = options.xLabel || col;
     options.yLabel = options.yLabel || "Count";
     options.title = options.title || `Histogram of ${col}`;
@@ -3579,19 +3472,19 @@ p5.prototype.hist = function(data, options = {}) {
     // Right-side vertical legend
     drawSideLegend(p, metaOpts, w, h);
 
-    // --- Axes and Ticks ---
+    // Axes and Ticks
     p.textFont(options.font || DEFAULT_FONT);
     
-    // X-axis (Base line)
+    // X-axis
     p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT); p.line(0, h, w, h);
     
-    // Y-axis (Vertical line)
+    // Y-axis
     p.line(0, 0, 0, h); 
     
-    // Calculate nice Y-axis bounds for count
+    // Calculate nice Y-axis bounds
     const yAxis = niceAxisBounds(0, maxCount);
     
-    // Y-ticks (using nice intervals)
+    // Y-ticks
     p.stroke(TICK_COLOR); p.strokeWeight(TICK_WEIGHT);
     yAxis.ticks.forEach(tickVal => {
         let yVal = p.map(tickVal, yAxis.min, yAxis.max, h, 0);
@@ -3604,18 +3497,16 @@ p5.prototype.hist = function(data, options = {}) {
         p.stroke(TICK_COLOR);
     });
     
-    // X-Ticks (At Edges)
+    // X-Ticks 
     p.fill(TEXT_COLOR); p.textSize(tickLabelSize);
-    const TEXT_BOX_WIDTH = scalePx(p, options, 30, 22, 40); // Define text box width for 4-argument p.text()
+    const TEXT_BOX_WIDTH = scalePx(p, options, 30, 22, 40); 
     const TICK_LABEL_PADDING = scalePx(p, options, 3, 2, 6);
     
-    // Controlled Label Decimation ---
-    // 1. Estimate the space needed for a label (e.g., 20px) plus a buffer (5px) = 25px
+    // Estimate the space needed for a label
     const minLabelSpace = scalePx(p, options, 25, 18, 40);
     
     // 2. Calculate how many bins fit in that space
     let labelEvery = Math.max(1, Math.ceil(minLabelSpace / barW));
-    // -----------------------------------------
     
     binEdges.forEach((edgeValue, i) => {
         const xPos = i * barW; 
@@ -3623,7 +3514,7 @@ p5.prototype.hist = function(data, options = {}) {
         p.stroke(TICK_COLOR); 
         p.line(xPos, h, xPos, h + tickLen);
 
-        // Decide if we should show the label based on the controlled decimation
+        // Decide if we should show the label 
         const showLabel = (i % labelEvery === 0 || i === finalBins || i === 0);
 
         if (showLabel) {
@@ -3634,40 +3525,31 @@ p5.prototype.hist = function(data, options = {}) {
             
             let labelText = Number.isInteger(edgeValue) ? String(edgeValue) : edgeValue.toFixed(1);
 
-            // Handle start and end edge alignment to prevent clipping
+            // Handle start and end edge alignment 
             if (i === 0) {
-                // Left Edge: Align left, box starts at xPos (0)
                 align = p.LEFT;
                 
                 p.textAlign(align, p.TOP);
                 p.text(labelText, textX, h + tickTextOffset, TEXT_BOX_WIDTH); 
 
             } else if (i === finalBins) {
-                // **FIX: Right Edge Special Alignment with Padding**
-                // Use 2-argument p.text() which perfectly respects p.RIGHT alignment.
-                // Add TICK_LABEL_PADDING to push the text past the tick mark.
                 align = p.RIGHT; 
                 
                 p.textAlign(align, p.TOP);
                 p.text(labelText, xPos + TICK_LABEL_PADDING, h + tickTextOffset); 
 
             } else {
-                // Internal Ticks: Center aligned using 4-argument p.text()
                 align = p.CENTER;
-                // Shift the drawing point left by half the text box width 
-                // so the center of the 30px box is at xPos.
                 textX -= TEXT_BOX_WIDTH / 2;
                 
                 p.textAlign(align, p.TOP);
                 
-                // The p.text function with 4 arguments treats the x, y coordinates as the corner
-                // of the text box.
                 p.text(labelText, textX, h + tickTextOffset, TEXT_BOX_WIDTH); 
             }
         }
     });
 
-    // --- Draw Bars (Touching with Dynamic Border and Tooltips) ---
+    // Draw Bars
     p.textFont(options.font || DEFAULT_FONT); 
 
     counts.forEach((count, i) => {
@@ -3675,7 +3557,7 @@ p5.prototype.hist = function(data, options = {}) {
         const rectH = p.map(count, yAxis.min, yAxis.max, 0, h);
         const rectY = h - rectH;
         
-        // Tooltip Check
+        // Tooltip
         const gx = margin.left + rectX;
         const gy = margin.top + rectY;
         
@@ -3690,7 +3572,6 @@ p5.prototype.hist = function(data, options = {}) {
               content = options.tooltip(binStart, binEnd, count, i, {bin: i, value: count, binStart, binEnd});
               if (!Array.isArray(content)) content = [String(content)];
             } else {
-              // Check for per-chart or global tooltip columns
               let tooltipCols = options.tooltipColumns || p5.prototype.chart.defaultTooltipColumns;
               if (Array.isArray(tooltipCols)) {
                 content = tooltipCols.map(tc => {
@@ -3729,55 +3610,35 @@ p5.prototype.hist = function(data, options = {}) {
         
         p.rect(rectX, rectY, barW, rectH);
 
-        // Value Labels (Inside Top of Bar by Default)
+        // Value Labels
         if (showLabels) {
           p.noStroke();
           p.textSize(histLabelSize);
           let label = formatValueLabel(count);
-          // Draw inside the bar, near the top, with contrast
-          let labelY = rectY + 4 + histLabelSize; // 4px padding from top inside
-          // If bar is too short, draw above bar (fallback)
+          let labelY = rectY + 4 + histLabelSize; 
           if (rectH < histLabelSize + 8) {
             labelY = rectY - 2;
             p.fill(TEXT_COLOR);
             p.textAlign(p.CENTER, p.BOTTOM);
           } else {
-            // Use contrasting color for inside
             p.fill(textColorContrast);
             p.textAlign(p.CENTER, p.TOP);
           }
-          // Ensure label never overlaps subtitle/legend (if at top of plot)
           if (labelY < -margin.top + 18) labelY = -margin.top + 18;
           p.text(label, rectX + barW / 2, labelY);
         }
     });
 
-        // Draw axis lines over the data
         p.stroke(AXIS_COLOR); p.strokeWeight(AXIS_WEIGHT);
         p.line(0, h, w, h);
         p.line(0, 0, 0, h);
 
     p.pop();
 };
-  // ==========================================
-  // 8. TABLE
-  // ==========================================
+
+  /* 8. TABLE */
 
   // Creates an interactive table with hover effects, optional search, and pagination
-  // Parameters:
-  //   - data: Array of objects or DataFrame
-  //   - options: {
-  //       title: string - Table title (default: "Data Table")
-  //       x, y: number - Position coordinates
-  //       width: number - Table width
-  //       maxRows: number - Max rows to display (default: 10, pagination)
-  //       searchable: boolean - Enable search input (default: false)
-  //       tooltip: string - Custom tooltip message on hover (optional)
-  //       id: string - Unique identifier for search input
-  //       pagination: boolean - Enable pagination controls (default: false)
-  //       page: number - Current page number (0-indexed, for external control)
-  //       onPageChange: function - Callback when page changes
-  //     }
   /**
    * Creates an interactive data table
    * NaN Handling: NaN/null values are DISPLAYED with visual indicator (grayed style).
@@ -3788,22 +3649,19 @@ p5.prototype.hist = function(data, options = {}) {
   p5.prototype.table = function(data, options = {}) {
       const p = this;
       ensureCanvasMatchesDisplay(p, options);
-      // Convert data to DataFrame if not already
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
       const id = options.id || 'p5chart_table';
       
-      // Validate data for NaN values
+      // Validate
       const validation = validateData(df, df.columns, options, 'table');
       
-      // Auto-enable searchable and pagination for tables with more than 10 rows
+      // Auto-enable searchable and pagination
       const totalRowCount = df.rows.length;
       const searchable = options.searchable !== undefined ? options.searchable : (totalRowCount > TABLE_MAX_ROWS);
       const pagination = options.pagination !== undefined ? options.pagination : (totalRowCount > TABLE_MAX_ROWS);
 
-      // Sorting (click headers to sort asc/desc)
       const sortable = options.sortable !== undefined ? options.sortable : true;
       
-      // Initialize pagination state if not exists
       if (!p.chart._tableStates) p.chart._tableStates = {};
       if (!p.chart._tableStates[id]) {
           p.chart._tableStates[id] = {
@@ -3814,22 +3672,20 @@ p5.prototype.hist = function(data, options = {}) {
           };
       }
       const state = p.chart._tableStates[id];
-      // Allow external control of page without overwriting sort state.
       if (options.page !== undefined) {
         state.currentPage = options.page;
       }
       
-      // Layout dimensions (calculate early for search input positioning)
+      // Layout dimensions
       const _responsiveScale = getResponsiveScale(p, options);
       let x = (options.x !== undefined) ? options.x : scalePx(p, options, 20, 8, 24);
       let y = (options.y !== undefined) ? options.y : scalePx(p, options, 80, 40, 100);
-      // On small canvases, prevent large fixed offsets from pushing the table off-screen.
       if (options.responsive !== false) {
         x = clampNumber(x, 0, Math.max(0, p.width - 10));
         y = clampNumber(y, 0, Math.max(0, Math.round(p.height * 0.25)));
       }
 
-      // Mobile-only right padding (to match the left gutter from x).
+      // Mobile-only right padding
       const rightPad = getMobileRightPadding(p, options);
       const maxTableW = Math.max(50, p.width - x - rightPad);
       const w = Math.min(
@@ -3843,12 +3699,11 @@ p5.prototype.hist = function(data, options = {}) {
       const searchWidth = Math.min(scalePx(p, options, TABLE_SEARCH_WIDTH, 110, 220), Math.max(110, Math.floor(w * 0.7)));
       const arrowSize = scalePx(p, options, TABLE_ARROW_SIZE, 18, 28);
       
-      // Only create search input if searchable is true
+      // Search input
       if (searchable) {
           if (!p.chart.inputs[id]) {
               let inp = p.createInput('');
-              // Position at bottom left corner
-              inp.position(x, y + 400); // Will be adjusted dynamically
+              inp.position(x, y + 400); 
               inp.attribute('placeholder', 'Search...');
               inp.style('padding', '4px 8px');
               inp.style('font-family', 'sans-serif');
@@ -3860,12 +3715,12 @@ p5.prototype.hist = function(data, options = {}) {
           }
       }
       
-      // Filter rows based on search query
+      // Filter rows
       const search = searchable && p.chart.inputs[id] ? p.chart.inputs[id].value().toLowerCase() : '';
       let rows = df.rows;
       if (search) rows = rows.filter(r => Object.values(r).some(v => String(v).toLowerCase().includes(search)));
 
-      // Apply sort (after search filtering, before pagination)
+      // Sort
       if (sortable && state.sortColumn) {
         const sortCol = state.sortColumn;
         const dir = state.sortDirection === 'desc' ? -1 : 1;
@@ -3884,7 +3739,7 @@ p5.prototype.hist = function(data, options = {}) {
           const aNil = isNil(av);
           const bNil = isNil(bv);
           if (aNil && bNil) return 0;
-          if (aNil) return 1; // push empty-ish values to bottom
+          if (aNil) return 1; 
           if (bNil) return -1;
 
           const an = toNumberOrNull(av);
@@ -3901,17 +3756,15 @@ p5.prototype.hist = function(data, options = {}) {
         });
       }
       
-      // Pagination calculations
       let maxRows = options.maxRows || TABLE_MAX_ROWS;
 
-      // Auto-fit table height on small canvases (avoid clipping).
+      // Auto-fit table
       if (options.responsive !== false) {
-        const bottomChrome = scalePx(p, options, 90, 70, 140); // space for search + pagination
+        const bottomChrome = scalePx(p, options, 90, 70, 140); 
         const availableH = p.height - y - bottomChrome;
         if (availableH > 0) {
-          const fitRows = Math.max(1, Math.floor(availableH / rowH) - 1); // minus header
+          const fitRows = Math.max(1, Math.floor(availableH / rowH) - 1); 
           maxRows = Math.min(maxRows, fitRows);
-          // If we’re tight, also compress row height a bit (down to 18px).
           if ((maxRows + 1) * rowH > availableH) {
             rowH = Math.max(18, Math.floor(availableH / (maxRows + 1)));
           }
@@ -3926,25 +3779,21 @@ p5.prototype.hist = function(data, options = {}) {
       const dispRows = rows.slice(startIdx, endIdx);
       const cols = df.columns;
       
-      // Update dimensions
       const colW = w / cols.length;
       
-      // Update search input position to bottom left
+      // Search input
       if (searchable && p.chart.inputs[id]) {
           const tableBottom = y + (dispRows.length + 1) * rowH;
-          // If canvas is CSS-scaled, convert canvas coords -> page coords so inputs stay aligned.
           const m = getCanvasDisplayMetrics(p);
           const pageX = m.left + x * (m.width && p.width ? (m.width / p.width) : 1);
           const pageY = m.top + (tableBottom + scalePx(p, options, 15, 10, 22)) * (m.height && p.height ? (m.height / p.height) : 1);
           p.chart.inputs[id].position(pageX, pageY);
-          // Keep sizing in sync for responsive layouts / canvas resizes
           p.chart.inputs[id].style('font-size', axisLabelSize + 'px');
-          // Scale width into CSS pixels so it matches the drawn table.
           const widthScale = m.width && p.width ? (m.width / p.width) : 1;
           p.chart.inputs[id].style('width', Math.max(90, Math.round(searchWidth * widthScale)) + 'px');
       }
       
-      // Interactive hover - track which cell is hovered
+      // Interactive hover
       let hoveredCell = null;
       const mx = p.mouseX - x;
       const my = p.mouseY - y;
@@ -3957,76 +3806,74 @@ p5.prototype.hist = function(data, options = {}) {
           }
       }
 
-      // Header click-to-sort (debounced to a single toggle per press)
+      // Header click-to-sort
       const mouseJustPressed = p.mouseIsPressed && !state._mouseWasPressed;
       const mouseJustReleased = !p.mouseIsPressed && state._mouseWasPressed;
-      // Update press state early so it stays consistent across the rest of the draw.
       if (mouseJustPressed) state._mouseWasPressed = true;
       if (mouseJustReleased) state._mouseWasPressed = false;
 
       if (sortable && mouseJustPressed && hoveredCell && hoveredCell.row === 0) {
         const clickedColName = cols[hoveredCell.col];
         if (state.sortColumn !== clickedColName) {
-          // New column: start at ascending.
           state.sortColumn = clickedColName;
           state.sortDirection = 'asc';
         } else {
-          // Same column: cycle asc -> desc -> none -> asc ...
           if (state.sortDirection === 'asc') {
             state.sortDirection = 'desc';
           } else if (state.sortDirection === 'desc') {
             state.sortColumn = null;
             state.sortDirection = 'asc';
           } else {
-            // Fallback if state gets into an unexpected value.
             state.sortDirection = 'asc';
           }
         }
-        // Reset to first page when changing sort.
         state.currentPage = 0;
         if (options.onPageChange) options.onPageChange(state.currentPage);
       }
       
-      // Custom tooltip message (optional)
       const tooltipMsg = options.tooltip;
       
-      // Color options with defaults
+      // Colors
       const headerColor = options.headerColor || p.color(TABLE_HEADER_COLOR);
       const rowColor1 = options.rowColor1 || p.color(TABLE_ROW_COLOR_1);
       const rowColor2 = options.rowColor2 || p.color(TABLE_ROW_COLOR_2);
       const hoverColor = options.hoverColor || p.color(TABLE_HOVER_COLOR);
       const borderColor = options.borderColor || p.color(TABLE_BORDER_COLOR);
       
-      // Draw title/subtitle using shared meta renderer so tables support:
-      // - subtitleWrap/titleWrap
-      // - subtitleSize/titleSize
-      // - subtitleBold
-      // - global default subtitle
+      // Draw title/subtitles
       const metaOpts = Object.assign({}, options);
       if (metaOpts.title === undefined) metaOpts.title = 'Data Table';
       if (metaOpts.subtitle === undefined) metaOpts.subtitle = p5.prototype.chart.defaultSubtitle;
 
-      // Draw table (+ meta above the table)
+      // Draw table
       p.push();
       p.translate(x, y);
       drawMeta(p, metaOpts, w, (dispRows.length + 1) * rowH);
-        // Draw header row
         p.fill(headerColor); p.noStroke(); p.rect(0, 0, w, rowH);
-        p.fill(0); p.textAlign(p.LEFT, p.CENTER); p.textStyle(p.NORMAL); p.textFont(DEFAULT_FONT);
+        
+        let headerTextColor;
+        if (typeof headerColor === 'number') {
+            headerTextColor = headerColor > 128 ? 0 : 255;
+        } else {
+            let r = p.red(headerColor);
+            let g = p.green(headerColor);
+            let b = p.blue(headerColor);
+            let luminance = 0.299 * r/255 + 0.587 * g/255 + 0.114 * b/255;
+            headerTextColor = luminance > 0.6 ? 0 : 255;
+        }
+        
+        p.fill(headerTextColor); p.textAlign(p.LEFT, p.CENTER); p.textStyle(p.NORMAL); p.textFont(DEFAULT_FONT);
         p.textSize(tableTextSize);
         cols.forEach((c, i) => {
-            // Highlight header on hover
             if (hoveredCell && hoveredCell.row === 0 && hoveredCell.col === i) {
                 p.fill(p.lerpColor(headerColor, p.color(200), 0.3)); p.rect(i*colW, 0, colW, rowH);
             }
-            p.fill(0);
+            p.fill(headerTextColor);
 
-            // Column header text
             const activeSort = sortable && state.sortColumn === c;
             const rightGutter = activeSort ? 18 : 6;
             p.text(truncate(p, c, colW - 10 - rightGutter), i*colW + 5, rowH/2);
 
-            // Sort indicator
             if (activeSort) {
               p.push();
               p.noStroke();
@@ -4042,28 +3889,22 @@ p5.prototype.hist = function(data, options = {}) {
             }
         });
       
-        // Draw data rows
+        // Data rows
         p.textStyle(p.NORMAL);
         dispRows.forEach((r, i) => {
           let ry = (i+1)*rowH;
-          // Alternating row colors for better readability
           let bg = i % 2 === 0 ? rowColor1 : rowColor2;
           
-          // Highlight cell on hover with custom hover color
           if (hoveredCell && hoveredCell.row === i + 1) {
               bg = p.lerpColor(bg, hoverColor, 0.3);
           }
           
-          // Draw row background
           p.fill(bg); p.rect(0, ry, w, rowH);
           
-          // Determine text color based on background (color protection)
           let cellTextColor;
           if (typeof bg === 'number') {
-              // Grayscale value - simple threshold
               cellTextColor = bg > 128 ? 0 : 255;
           } else {
-              // Color object from lerpColor - calculate luminance
               let r = p.red(bg);
               let g = p.green(bg);
               let b = p.blue(bg);
@@ -4080,7 +3921,6 @@ p5.prototype.hist = function(data, options = {}) {
                            (typeof cellValue === 'number' && Number.isNaN(cellValue));
               const showNaNIndicator = options.nanIndicator !== false;
               
-              // Show tooltip on hover
               if (hoveredCell && hoveredCell.row === i + 1 && hoveredCell.col === j) {
                   let content;
                   if (typeof options.tooltip === 'function') {
@@ -4105,7 +3945,6 @@ p5.prototype.hist = function(data, options = {}) {
                   const tooltipH = 25;
                   const tooltipX = j*colW + colW/2 - tooltipW/2;
                   const tooltipY = ry - tooltipH - 5;
-                  // Draw tooltip box
                   p.fill(50, 50, 50, 230);
                   p.noStroke();
                   p.rect(tooltipX, tooltipY, tooltipW, tooltipH, 4);
@@ -4115,14 +3954,12 @@ p5.prototype.hist = function(data, options = {}) {
                   p.pop();
               }
               
-              // Visual indicator for NaN values
+              // NaN
               if (isNaN && showNaNIndicator) {
-                  // Gray background for NaN cell
                   p.fill(220, 220, 220, 100);
                   p.noStroke();
                   p.rect(j*colW + 1, ry + 1, colW - 2, rowH - 2);
                   
-                  // Gray text
                   p.fill(150, 150, 150);
                   p.textStyle(p.ITALIC);
                   p.text('—', j*colW + 5, ry + rowH/2);
@@ -4133,11 +3970,10 @@ p5.prototype.hist = function(data, options = {}) {
               }
           });
         });
-      // Draw table border
       p.stroke(borderColor); p.noFill(); p.rect(0, 0, w, (dispRows.length + 1) * rowH);
       p.pop();
       
-      // Draw pagination controls if enabled (compact, bottom-right corner)
+      // Pagination
       if (pagination && totalPages > 1) {
           const tableBottom = y + (dispRows.length + 1) * rowH;
           const paginationY = tableBottom + 15;
@@ -4147,23 +3983,23 @@ p5.prototype.hist = function(data, options = {}) {
           p.textFont(DEFAULT_FONT);
           p.textSize(tableTextSize);
           
-          // Arrow button dimensions
+          // Arrows
           const spacing = scalePx(p, options, 5, 3, 8);
           const pageTextWidth = scalePx(p, options, 50, 40, 70);
           
-          // Page text: "1 of 4"
+          // Page text
           const pageText = `${state.currentPage + 1} of ${totalPages}`;
           const textX = paginationX - arrowSize - spacing - pageTextWidth/2;
           const prevX = paginationX - arrowSize * 2 - spacing * 2 - pageTextWidth;
           const nextX = paginationX - arrowSize;
           
-          // Check button hovers
+          // Hover
           const hoverPrev = p.mouseX > prevX && p.mouseX < prevX + arrowSize && 
                            p.mouseY > paginationY && p.mouseY < paginationY + arrowSize;
           const hoverNext = p.mouseX > nextX && p.mouseX < nextX + arrowSize && 
                            p.mouseY > paginationY && p.mouseY < paginationY + arrowSize;
           
-          // Previous arrow button
+          // Previous Arrows
           if (state.currentPage > 0) {
               p.fill(hoverPrev ? p.color(150, 180, 255) : p.color(100, 150, 255));
           } else {
@@ -4171,7 +4007,6 @@ p5.prototype.hist = function(data, options = {}) {
           }
           p.noStroke();
           p.rect(prevX, paginationY, arrowSize, arrowSize, 3);
-          // Draw left arrow (switched to point left)
           p.fill(255);
           p.triangle(prevX + 8, paginationY + 12, 
                     prevX + 16, paginationY + 6, 
@@ -4189,7 +4024,7 @@ p5.prototype.hist = function(data, options = {}) {
               p.fill(220);
           }
           p.rect(nextX, paginationY, arrowSize, arrowSize, 3);
-          // Draw right arrow (switched to point right)
+          // Draw right arrow
           p.fill(255);
           p.triangle(nextX + 16, paginationY + 12, 
                     nextX + 8, paginationY + 6, 
@@ -4197,7 +4032,7 @@ p5.prototype.hist = function(data, options = {}) {
           
           p.pop();
           
-          // Handle button clicks
+          // Clicks
           if (p.mouseIsPressed && p.frameCount % 10 === 0) {
               if (hoverPrev && state.currentPage > 0) {
                   state.currentPage--;
@@ -4208,7 +4043,7 @@ p5.prototype.hist = function(data, options = {}) {
               }
           }
           
-          // Handle keyboard navigation
+          // Keyboard
           if (p.keyIsPressed) {
               if (p.keyCode === p.LEFT_ARROW && state.currentPage > 0 && p.frameCount % 10 === 0) {
                   state.currentPage--;
@@ -4221,9 +4056,7 @@ p5.prototype.hist = function(data, options = {}) {
       }
   };
 
-  // ==========================================
-  // 9. GEO (OpenStreetMap Integration)
-  // ==========================================
+  /* 9. GEO MAP (OpenStreetMap Integration) */
   
   /**
   * Creates a geo chart with geographic points
@@ -4235,10 +4068,7 @@ p5.prototype.hist = function(data, options = {}) {
       const p = this;
       ensureCanvasMatchesDisplay(p, options);
       let df = (data instanceof p.chart.DataFrame) ? data : new p.chart.DataFrame(data);
-
-      // ---- Robust canvas event binding helpers (works across global/instance mode) ----
       const getCanvasElement = () => {
-        // p.canvas is the HTMLCanvasElement in most p5 builds; fallback to renderer elt.
         return p.canvas || (p._renderer && p._renderer.elt) || null;
       };
 
@@ -4246,7 +4076,6 @@ p5.prototype.hist = function(data, options = {}) {
         const elt = getCanvasElement();
         if (!elt || !e) return { x: p.mouseX, y: p.mouseY };
         const rect = elt.getBoundingClientRect();
-        // Convert client pixels into canvas coordinate space (handles CSS scaling).
         const scaleX = rect.width ? (p.width / rect.width) : 1;
         const scaleY = rect.height ? (p.height / rect.height) : 1;
         const x = (e.clientX - rect.left) * scaleX;
@@ -4254,16 +4083,15 @@ p5.prototype.hist = function(data, options = {}) {
         return { x, y };
       };
       
-      // Column mapping
+      // Columns
       const latCol = options.lat || options.latitude || 'lat';
       const lonCol = options.lon || options.longitude || 'lon';
       const labelCol = options.label || 'label';
       const valueCol = options.value || 'value';
       
-      // Validate data for NaN values
+      // Validate
       const validation = validateData(df, [latCol, lonCol], options, 'geo');
       
-      // Auto-calculate center and zoom to fit all points
       let autoCenterLat = 37.8;
       let autoCenterLon = -96;
       let autoZoom = GEO_DEFAULT_ZOOM;
@@ -4272,25 +4100,21 @@ p5.prototype.hist = function(data, options = {}) {
       const lons = df.col(lonCol).map(Number).filter(v => !isNaN(v));
       
       if (lats.length > 0 && lons.length > 0) {
-          // Calculate bounds
           const minLat = Math.min(...lats);
           const maxLat = Math.max(...lats);
           const minLon = Math.min(...lons);
           const maxLon = Math.max(...lons);
-          
-          // Calculate center
+
           autoCenterLat = (minLat + maxLat) / 2;
           autoCenterLon = (minLon + maxLon) / 2;
           
-          // Calculate zoom to fit all points with padding
           const latRange = maxLat - minLat;
           const lonRange = maxLon - minLon;
           
-          // Estimate zoom level to fit the bounds
           const WORLD_DIM = { height: 256, width: 256 };
           const zoomLat = Math.floor(Math.log2(p.height * 0.85 / (latRange * WORLD_DIM.height / 180)));
           const zoomLon = Math.floor(Math.log2(p.width * 0.85 / (lonRange * WORLD_DIM.width / 360)));
-          autoZoom = Math.min(Math.max(Math.min(zoomLat, zoomLon), 2), 18); // Clamp between 2-18
+          autoZoom = Math.min(Math.max(Math.min(zoomLat, zoomLon), 2), 18); 
       }
       
       // Geo state
@@ -4314,23 +4138,16 @@ p5.prototype.hist = function(data, options = {}) {
       }
       const state = p.chart._geoState;
 
-        // If the canvas size changes (common on mobile resize/orientation changes),
-        // adjust zoom to keep points fitting without requiring sketch changes.
+        // If the canvas size changes adjust zoom.
         if (options.zoom === undefined) {
           const sizeChanged = state._lastCanvasW !== p.width || state._lastCanvasH !== p.height;
           if (sizeChanged) {
-              // Only auto-adjust zoom if the user hasn't manually zoomed.
               if (!state._userZoom) {
-                // Always recompute a fit-to-bounds zoom for the current dimensions.
-                // This lets the geo chart shrink and then expand back naturally.
                 state.zoom = autoZoom;
               }
-
-              // Refresh tiles for the new canvas size.
               state.tiles = {};
             state._lastCanvasW = p.width;
             state._lastCanvasH = p.height;
-            // Defer tile loading until after helpers are defined.
             state._needsTileReload = true;
           }
         }
@@ -4452,7 +4269,6 @@ p5.prototype.hist = function(data, options = {}) {
           let lat = Number(row[latCol]);
           let lon = Number(row[lonCol]);
           
-          // Skip if lat/lon is NaN
           if (isNaN(lat) || isNaN(lon)) return;
           
           let pos = latLonToPixel(lat, lon);
@@ -4490,7 +4306,6 @@ p5.prototype.hist = function(data, options = {}) {
               let v = h.row[tc.col];
               let label = tc.label || tc.col;
               if (v !== undefined) return `${label}: ${v}`;
-              // Special support for lat/lon
               if (tc.col === latCol) return `${label}: ${Number(h.row[latCol]).toFixed(4)}`;
               if (tc.col === lonCol) return `${label}: ${Number(h.row[lonCol]).toFixed(4)}`;
               return null;
@@ -4551,7 +4366,7 @@ p5.prototype.hist = function(data, options = {}) {
       
       p.pop();
       
-      // Handle mouse drag for panning
+      // Handle panning
         p._handleMapMousePressed = function(x = p.mouseX, y = p.mouseY) {
           if (x >= 0 && x <= p.width && y >= 0 && y <= p.height) {
               state.isDragging = true;
@@ -4590,7 +4405,7 @@ p5.prototype.hist = function(data, options = {}) {
       };
       
       p._handleMapWheel = function(event) {
-          // Zoom in/out with mouse wheel
+          // Zoom in/out
               const delta = (event && (event.delta !== undefined ? event.delta : (event.deltaY !== undefined ? event.deltaY : 0))) || 0;
               const prevZoom = state.zoom;
               if (delta > 0) {
@@ -4600,7 +4415,6 @@ p5.prototype.hist = function(data, options = {}) {
               }
               if (state.zoom !== prevZoom) {
                 state._userZoom = true;
-                // Clear tiles across zoom levels to avoid unbounded growth and stale tiles.
                 state.tiles = {};
                 loadVisibleTiles();
               }
@@ -4611,7 +4425,6 @@ p5.prototype.hist = function(data, options = {}) {
             // Prefer canvas-bound events 
             const cnvElt = getCanvasElement();
             if (cnvElt && (!p.chart._mapDomHandlersRegistered || p.chart._mapDomHandlersTarget !== cnvElt)) {
-              // If previously bound to a different canvas, unbind first
               if (p.chart._mapDomHandlersRegistered && p.chart._mapDomHandlersTarget && p.chart._mapDomWheelListener) {
                 try {
                   p.chart._mapDomHandlersTarget.removeEventListener('wheel', p.chart._mapDomWheelListener);
@@ -4656,7 +4469,6 @@ p5.prototype.hist = function(data, options = {}) {
             }
       
       // Auto-register handlers if not already done
-            // Keep legacy p5 callback wrapping as a fallback only (for environments where canvas events can't bind).
             if (!p.chart._mapHandlersRegistered && !p.chart._mapDomHandlersRegistered) {
           const originalMousePressed = p.mousePressed || (() => {});
           p.mousePressed = function() {
@@ -4690,24 +4502,18 @@ p5.prototype.hist = function(data, options = {}) {
       }
   };
 
-  // ==========================================
-  // 10. EXPORT UTILITIES
-  // ==========================================
+  /* 10. EXPORT UTILITIES */
 
   /**
    * Export current canvas as PNG image
-   * Works for all chart types
-   * @param {string} filename - Name of the file (default: 'chart.png')
+   * @param {string} filename - Name of file (default: 'chart.png')
    */
   p5.prototype.toPNG = function(filename = 'chart.png') {
     const p = this;
     
-    // Ensure filename has .png extension
     if (!filename.endsWith('.png')) {
       filename += '.png';
     }
-    
-    // Use p5.js built-in save() to export canvas as PNG
     p.save(filename);
   };
 
@@ -4740,25 +4546,21 @@ p5.prototype.hist = function(data, options = {}) {
       return;
     }
     
-    // Get options with defaults
     const delimiter = options.delimiter || ',';
     const includeHeader = options.includeHeader !== false;
     const columns = options.columns || df.columns;
     
-    // Build CSV string
     let csvContent = '';
     
-    // Add header row
     if (includeHeader) {
       csvContent += columns.map(col => escapeCSVField(col, delimiter)).join(delimiter) + '\n';
     }
     
-    // Add data rows
+    // Data
     const rows = df.rows;
     rows.forEach(row => {
       const rowValues = columns.map(col => {
         const value = row[col];
-        // Handle NaN/null values
         if (value === null || value === undefined || 
             (typeof value === 'number' && isNaN(value))) {
           return '';
@@ -4768,12 +4570,12 @@ p5.prototype.hist = function(data, options = {}) {
       csvContent += rowValues.join(delimiter) + '\n';
     });
     
-    // Create a Blob and trigger download
+    // Download
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     
     if (link.download !== undefined) {
-      // Feature detection for download attribute
+      // Feature detection for download 
       const url = URL.createObjectURL(blob);
       link.setAttribute('href', url);
       link.setAttribute('download', filename);
@@ -4794,9 +4596,7 @@ p5.prototype.hist = function(data, options = {}) {
   function escapeCSVField(field, delimiter = ',') {
     field = String(field);
     
-    // If field contains delimiter, quotes, or newlines, wrap in quotes
     if (field.includes(delimiter) || field.includes('"') || field.includes('\n') || field.includes('\r')) {
-      // Escape existing quotes by doubling them
       field = field.replace(/"/g, '""');
       return `"${field}"`;
     }
