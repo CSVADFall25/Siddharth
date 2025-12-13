@@ -16,7 +16,7 @@
 
 `libraries`: p5.js is located here
 
-`logo:` Contains the logo for submission to the Processing Foundation
+`logo`: Contains the logo for submission to the Processing Foundation
 
 `mat236_presentation_materials:` Contains the proposal in written form and the presentation for the critique. The project description/reflection is located in the Google Drive. 
 
